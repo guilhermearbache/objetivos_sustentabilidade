@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Votação Coletiva - GT Clima e Sustentabilidade RME-SP</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React 18 e Babel CDN para rodar JSX diretamente no navegador -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Google Fonts Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background-color: #cbd5e1;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+
+  <div id="root"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, onSnapshot, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    window.firebaseApp = {
+      initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+      getFirestore, collection, addDoc, onSnapshot, doc
+    };
+  </script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    // Estrutura inicial dos Objetivos do GT
+    const INITIAL_OBJECTIVES = [
+      // Eixo 1 & 2: Educação Ambiental e Conforto/Segurança (Redação Final Consolidada)
+      {
+        id: "obj-1-1",
+        code: "1.1",
+        axis: "Educação Ambiental",
+        category: "Currículo e Atividades",
+        title: "Educação Ambiental Universal",
+        description: "Garantir que a educação ambiental chegue, nos componentes curriculares e em atividades extra-curriculares, a todas e todos estudantes, sem depender de esforços individuais e pontuais.",
+        isFinalDraft: true,
+      },
+      {
+        id: "obj-1-2",
+        code: "1.2",
+        axis: "Educação Ambiental",
+        category: "Alinhamento Curricular",
+        title: "Ações Socioambientais na RME-SP",
+        description: "Garantir que ações estejam ligadas a questões socioambientais em todos espaços da RME-SP e alinhadas ao currículo da cidade na dimensão de Educação Ambiental.",
+        isFinalDraft: true,
+      },
+      {
+        id: "obj-2-1",
+        code: "2.1",
+        axis: "Adaptação e Segurança Escolar",
+        category: "Conforto Térmico e Ar",
+        title: "Qualidade do Ar e Conforto Térmico",
+        description: "Garantir que bebês, crianças e adolescentes tenham conforto térmico e uma boa qualidade do ar em todas salas de aula e espaços das UEs.",
+        isFinalDraft: true,
+      },
+      {
+        id: "obj-2-2",
+        code: "2.2",
+        axis: "Adaptação e Segurança Escolar",
+        category: "Eventos Extremos",
+        title: "Segurança e Operação em Eventos Extremos",
+        description: "Oferecer condições e orientação antes, durante e depois de eventos extremos para que as escolas da rede permaneçam em operação quando possível, e que acima de tudo a comunidade escolar permaneça segura.",
+        isFinalDraft: true,
+      },
+
+      // Eixo 3: Mitigação e Sustentabilidade (Em Construção/Refinamento)
+      {
+        id: "obj-3-1",
+        code: "3.1",
+        axis: "Mitigação e Sustentabilidade",
+        category: "Gestão de Resíduos Sólidos",
+        title: "Coleta e Separação de Resíduos",
+        description: "Melhorar a coleta e separação de resíduos nas UEs e prédios administrativos.",
+        isFinalDraft: false,
+      },
+      {
+        id: "obj-3-2",
+        code: "3.2",
+        axis: "Mitigação e Sustentabilidade",
+        category: "Gestão de Água e Energia",
+        title: "Consumo e Reúso de Água",
+        description: "Diminuir o consumo e aumentar o reuso de água na operação da rede.",
+        isFinalDraft: false,
+      },
+      {
+        id: "obj-3-3",
+        code: "3.3",
+        axis: "Mitigação e Sustentabilidade",
+        category: "Gestão de Energia",
+        title: "Fontes Renováveis e Eficiência",
+        description: "Diminuir o consumo e aumentar o uso de fontes renováveis (como paineis solares) na operação da rede.",
+        isFinalDraft: false,
+      },
+      {
+        id: "obj-3-4",
+        code: "3.4",
+        axis: "Mitigação e Sustentabilidade",
+        category: "Compras Sustentáveis",
+        title: "Critérios de Ciclo de Vida em Compras",
+        description: "Garantir que ciclo de vida do produto e outros critérios de sustentabilidade sejam considerados de forma mais intensa nas compras de uniformes, materiais, limpeza e quaisquer outras aquisições de produtos e serviços.",
+        isFinalDraft: false,
+      },
+
+      // Eixo 4: Gestão, Governança e Equidade (Em Construção/Refinamento)
+      {
+        id: "obj-4-1",
+        code: "4.1",
+        axis: "Gestão, Governança e Equidade",
+        category: "Dados sobre Infraestrutura e Operação",
+        title: "Transparência de Infraestrutura e Recursos",
+        description: "Garantir a disponibilidade de informações sobre os prédios, espaços, áreas verdes e consumo de energia e água na rede municipal.",
+        isFinalDraft: false,
+      },
+      {
+        id: "obj-4-2",
+        code: "4.2",
+        axis: "Gestão, Governança e Equidade",
+        category: "Dados sobre Educação Ambiental",
+        title: "Monitoramento de EA nos PPPs",
+        description: "Aumentar a disponibilidade de dados sobre meio-ambiente e clima nos PPPs e sobre projetos de EA e abordagem do assunto nas UEs.",
+        isFinalDraft: false,
+      },
+      {
+        id: "obj-4-3",
+        code: "4.3",
+        axis: "Gestão, Governança e Equidade",
+        category: "Governança e Articulação em C&S",
+        title: "Instância de Referência e Papéis Regulatórios",
+        description: "Ter uma instância de referência e papéis claramente definidos por normativa no que se refere a questões de C&S: ações, projetos e parcerias; resposta a órgãos de controle; formulação e monitoramento de metas e ações em Planos Municipais; entre outros.",
+        isFinalDraft: false,
+      }
+    ];
+
+    const IconCheckCircle = () => (
+      <svg className="w-4 h-4 text-emerald-600 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+
+    const IconEdit = () => (
+      <svg className="w-4 h-4 text-amber-600 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+      </svg>
+    );
+
+    const IconLayers = () => (
+      <svg className="w-4 h-4 text-indigo-600 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+      </svg>
+    );
+
+    const IconTrash = () => (
+      <svg className="w-4 h-4 text-rose-600 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      </svg>
+    );
+
+    const IconSend = () => (
+      <svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+      </svg>
+    );
+
+    const IconBarChart = () => (
+      <svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+      </svg>
+    );
+
+    const IconDownload = () => (
+      <svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      </svg>
+    );
+
+    function App() {
+      const [participantName, setParticipantName] = useState("");
+      const [participantRole, setParticipantRole] = useState("");
+      const [activeTab, setActiveTab] = useState("vote");
+      const [filterAxis, setFilterAxis] = useState("Todos");
+      const [copiedStatus, setCopiedStatus] = useState(false);
+      const [isSyncing, setIsSyncing] = useState(false);
+
+      // Estado dos votos do usuário corrente
+      const [votes, setVotes] = useState(() => {
+        const initial = {};
+        INITIAL_OBJECTIVES.forEach(obj => {
+          initial[obj.id] = {
+            decision: 'manter',
+            newText: '',
+            groupedWith: [],
+            justification: ''
+          };
+        });
+        return initial;
+      });
+
+      // Lista de todas as cédulas enviadas (compartilhada no mesmo navegador ou Firebase)
+      const [submittedBallots, setSubmittedBallots] = useState(() => {
+        try {
+          const saved = localStorage.getItem('gt_clima_ballots');
+          return saved ? JSON.parse(saved) : [];
+        } catch(e) {
+          return [];
+        }
+      });
+
+      // Conexão e Sincronização em Tempo Real (Firebase Firestore se disponível)
+      useEffect(() => {
+        let unsubscribe = null;
+        if (window.firebaseApp && window.firebaseApp.getFirestore) {
+          const { getFirestore, collection, onSnapshot, getAuth, signInAnonymously, signInWithCustomToken } = window.firebaseApp;
+          
+          try {
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-votacao-rmesp';
+            let firebaseConfig = null;
+            
+            if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
+              firebaseConfig = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
+            }
+
+            if (firebaseConfig) {
+              const app = window.firebaseApp.initializeApp(firebaseConfig);
+              const db = getFirestore(app);
+              const auth = getAuth(app);
+
+              const setupListener = () => {
+                const votesRef = collection(db, 'artifacts', appId, 'public', 'data', 'votes');
+                unsubscribe = onSnapshot(votesRef, (snapshot) => {
+                  const cloudBallots = [];
+                  snapshot.forEach((doc) => {
+                    cloudBallots.push({ id: doc.id, ...doc.data() });
+                  });
+                  if (cloudBallots.length > 0) {
+                    setSubmittedBallots(cloudBallots);
+                    localStorage.setItem('gt_clima_ballots', JSON.stringify(cloudBallots));
+                  }
+                }, (error) => {
+                  console.warn("Erro ao escutar atualizações em nuvem:", error);
+                });
+              };
+
+              if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
+                signInWithCustomToken(auth, window.__initial_auth_token)
+                  .then(setupListener)
+                  .catch(() => signInAnonymously(auth).then(setupListener));
+              } else {
+                signInAnonymously(auth).then(setupListener).catch(() => setupListener());
+              }
+            }
+          } catch(err) {
+            console.log("Serviço em nuvem operando em modo local.", err);
+          }
+        }
+        return () => {
+          if (unsubscribe) unsubscribe();
+        };
+      }, []);
+
+      // Eixos únicos para filtro
+      const axes = useMemo(() => {
+        return ["Todos", ...Array.from(new Set(INITIAL_OBJECTIVES.map(o => o.axis)))];
+      }, []);
+
+      const handleDecisionChange = (objId, newDecision) => {
+        setVotes(prev => {
+          const current = prev[objId] || {};
+          const updated = { ...prev, [objId]: { ...current, decision: newDecision } };
+          
+          if (newDecision !== 'agrupar' && current.groupedWith?.length > 0) {
+            current.groupedWith.forEach(targetId => {
+              if (updated[targetId]?.decision === 'agrupar') {
+                const cleanTargets = (updated[targetId].groupedWith || []).filter(id => id !== objId);
+                updated[targetId] = {
+                  ...updated[targetId],
+                  groupedWith: cleanTargets,
+                  decision: cleanTargets.length === 0 ? 'manter' : 'agrupar'
+                };
+              }
+            });
+            updated[objId].groupedWith = [];
+          }
+          return updated;
+        });
+      };
+
+      // Alternar agrupamento com sincronização automática do outro item e redação conjunta
+      const handleToggleGroup = (sourceId, targetId) => {
+        setVotes(prev => {
+          const updated = { ...prev };
+          const sourceVote = { ...(updated[sourceId] || { decision: 'agrupar', groupedWith: [], newText: '', justification: '' }) };
+          const targetVote = { ...(updated[targetId] || { decision: 'agrupar', groupedWith: [], newText: '', justification: '' }) };
+
+          const isAlreadyGrouped = (sourceVote.groupedWith || []).includes(targetId);
+
+          if (isAlreadyGrouped) {
+            sourceVote.groupedWith = sourceVote.groupedWith.filter(id => id !== targetId);
+            targetVote.groupedWith = (targetVote.groupedWith || []).filter(id => id !== sourceId);
+
+            if (sourceVote.groupedWith.length === 0) sourceVote.decision = 'manter';
+            if (targetVote.groupedWith.length === 0) targetVote.decision = 'manter';
+          } else {
+            sourceVote.decision = 'agrupar';
+            sourceVote.groupedWith = Array.from(new Set([...(sourceVote.groupedWith || []), targetId]));
+
+            targetVote.decision = 'agrupar';
+            targetVote.groupedWith = Array.from(new Set([...(targetVote.groupedWith || []), sourceId]));
+
+            const combinedText = sourceVote.newText || targetVote.newText || "";
+            sourceVote.newText = combinedText;
+            targetVote.newText = combinedText;
+          }
+
+          updated[sourceId] = sourceVote;
+          updated[targetId] = targetVote;
+          return updated;
+        });
+      };
+
+      const handleNewTextChange = (objId, text) => {
+        setVotes(prev => {
+          const updated = { ...prev };
+          const current = { ...(updated[objId] || {}) };
+          current.newText = text;
+          updated[objId] = current;
+
+          if (current.decision === 'agrupar' && current.groupedWith?.length > 0) {
+            current.groupedWith.forEach(gId => {
+              if (updated[gId]) {
+                updated[gId] = { ...updated[gId], newText: text };
+              }
+            });
+          }
+          return updated;
+        });
+      };
+
+      const handleJustificationChange = (objId, text) => {
+        setVotes(prev => ({
+          ...prev,
+          [objId]: { ...prev[objId], justification: text }
+        }));
+      };
+
+      const handleSubmitVote = async (e) => {
+        e.preventDefault();
+        if (!participantName.trim()) {
+          const input = document.getElementById('participantNameInput');
+          if (input) input.focus();
+          return;
+        }
+
+        setIsSyncing(true);
+
+        const newBallot = {
+          voterName: participantName,
+          voterRole: participantRole || "Membro do GT",
+          submittedAt: new Date().toLocaleString('pt-BR'),
+          votes: JSON.parse(JSON.stringify(votes))
+        };
+
+        // Salvar localmente no navegador
+        const updatedBallots = [newBallot, ...submittedBallots];
+        setSubmittedBallots(updatedBallots);
+        try {
+          localStorage.setItem('gt_clima_ballots', JSON.stringify(updatedBallots));
+        } catch(e) {}
+
+        // Tentar salvar na Nuvem para compartilhamento com outros votantes
+        if (window.firebaseApp && window.firebaseApp.getFirestore) {
+          try {
+            const { getFirestore, collection, addDoc, getAuth } = window.firebaseApp;
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-votacao-rmesp';
+            let firebaseConfig = null;
+            if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
+              firebaseConfig = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
+            }
+            if (firebaseConfig) {
+              const app = window.firebaseApp.initializeApp(firebaseConfig);
+              const db = getFirestore(app);
+              await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'votes'), newBallot);
+            }
+          } catch(err) {
+            console.log("Voto registrado no dispositivo local.", err);
+          }
+        }
+
+        setIsSyncing(false);
+        setActiveTab("summary");
+      };
+
+      const handleNewBallot = () => {
+        setParticipantName("");
+        setParticipantRole("");
+        const reset = {};
+        INITIAL_OBJECTIVES.forEach(obj => {
+          reset[obj.id] = { decision: 'manter', newText: '', groupedWith: [], justification: '' };
+        });
+        setVotes(reset);
+        setActiveTab("vote");
+      };
+
+      const statsByObjective = useMemo(() => {
+        return INITIAL_OBJECTIVES.map(obj => {
+          const counts = { manter: 0, alterar: 0, excluir: 0, agrupar: 0 };
+          const suggestions = [];
+          const comments = [];
+
+          submittedBallots.forEach(ballot => {
+            const v = ballot.votes[obj.id];
+            if (v) {
+              counts[v.decision] = (counts[v.decision] || 0) + 1;
+              if (v.newText) {
+                suggestions.push({ author: ballot.voterName, text: v.newText, decision: v.decision });
+              }
+              if (v.justification) {
+                comments.push({ author: ballot.voterName, text: v.justification });
+              }
+            }
+          });
+
+          return {
+            ...obj,
+            counts,
+            suggestions,
+            comments,
+            totalCast: submittedBallots.length
+          };
+        });
+      }, [submittedBallots]);
+
+      const handleExportData = () => {
+        const exportData = {
+          exportDate: new Date().toISOString(),
+          totalParticipants: submittedBallots.length,
+          objectives: statsByObjective,
+          individualBallots: submittedBallots
+        };
+
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute("href", dataStr);
+        downloadAnchor.setAttribute("download", `consolidado-votacao-gt-clima-${new Date().toISOString().slice(0, 10)}.json`);
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+      };
+
+      const handleCopySummary = () => {
+        let summaryText = `RELATÓRIO CONSOLIDADO DE VOTAÇÃO - GT CLIMA E SUSTENTABILIDADE\n`;
+        summaryText += `Total de Cédulas Contabilizadas: ${submittedBallots.length}\n`;
+        summaryText += `Data do Relatório: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
+
+        statsByObjective.forEach(obj => {
+          summaryText += `[${obj.code}] ${obj.title} (${obj.axis})\n`;
+          summaryText += `Status: ${obj.isFinalDraft ? "Redação Final (Trabalhada pelo GT)" : "Em Refinamento"}\n`;
+          summaryText += `Placar: Manter: ${obj.counts.manter} | Alterar: ${obj.counts.alterar} | Agrupar: ${obj.counts.agrupar} | Excluir: ${obj.counts.excluir}\n`;
+          if (obj.suggestions.length > 0) {
+            summaryText += `Sugestões de Redação:\n`;
+            obj.suggestions.forEach(s => summaryText += `  • "${s.text}" (${s.author})\n`);
+          }
+          if (obj.comments.length > 0) {
+            summaryText += `Comentários/Justificativas:\n`;
+            obj.comments.forEach(c => summaryText += `  • ${c.author}: ${c.text}\n`);
+          }
+          summaryText += `--------------------------------------------------\n\n`;
+        });
+
+        const textArea = document.createElement("textarea");
+        textArea.value = summaryText;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand('copy');
+          setCopiedStatus(true);
+          setTimeout(() => setCopiedStatus(false), 2500);
+        } catch (err) {}
+        document.body.removeChild(textArea);
+      };
+
+      const filteredObjectives = useMemo(() => {
+        if (filterAxis === "Todos") return INITIAL_OBJECTIVES;
+        return INITIAL_OBJECTIVES.filter(o => o.axis === filterAxis);
+      }, [filterAxis]);
+
+      return (
+        <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+          
+          {/* Header Superior */}
+          <header className="bg-emerald-800 text-white shadow-md sticky top-0 z-30">
+            <div className="max-w-6xl mx-auto px-4 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-emerald-700 rounded-xl border border-emerald-600 shadow-inner">
+                  <span className="text-xl">🌿</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-widest bg-emerald-950/70 px-2 py-0.5 rounded font-bold text-emerald-300">
+                      RME-SP
+                    </span>
+                    <span className="text-xs text-emerald-200">GT Clima e Sustentabilidade</span>
+                  </div>
+                  <h1 className="text-base sm:text-lg font-bold tracking-tight">
+                    Painel de Votação de Objetivos Estratégicos
+                  </h1>
+                </div>
+              </div>
+
+              {/* Seletor de Abas */}
+              <div className="flex bg-emerald-950/60 p-1 rounded-xl border border-emerald-700/50">
+                <button
+                  onClick={() => setActiveTab("vote")}
+                  className={`px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 ${
+                    activeTab === "vote"
+                      ? "bg-white text-emerald-900 shadow"
+                      : "text-emerald-100 hover:bg-emerald-800/60"
+                  }`}
+                >
+                  <IconEdit />
+                  Cédula de Voto
+                </button>
+                <button
+                  onClick={() => setActiveTab("summary")}
+                  className={`px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5 ${
+                    activeTab === "summary"
+                      ? "bg-white text-emerald-900 shadow"
+                      : "text-emerald-100 hover:bg-emerald-800/60"
+                  }`}
+                >
+                  <IconBarChart />
+                  Consolidado
+                  {submittedBallots.length > 0 && (
+                    <span className="ml-1.5 px-2 py-0.2 bg-emerald-500 text-white rounded-full text-xs font-bold">
+                      {submittedBallots.length}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* Banner Metodológico */}
+          <div className="bg-emerald-950 text-emerald-100 text-xs py-2 px-4 border-b border-emerald-800/60">
+            <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>
+                  <strong>Orientação:</strong> Os itens <strong>1.1 a 2.2</strong> já possuem <em>Redação Final Consolidada</em> pelo GT. Os demais (3.1 a 4.3) estão abertos para deliberação e redação.
+                </span>
+              </div>
+              <span className="text-emerald-300 font-mono">11 Objetivos em Pauta</span>
+            </div>
+          </div>
+
+          {/* Conteúdo Principal */}
+          <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
+            
+            {/* ======================= ABA 1: CÉDULA DE VOTO ======================= */}
+            {activeTab === "vote" && (
+              <form onSubmit={handleSubmitVote} className="space-y-6">
+                
+                {/* Identificação do Votante */}
+                {}
+                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
+                  <div className="flex items-center gap-2 text-slate-800 font-bold mb-3 text-sm">
+                    <span className="text-emerald-600 font-extrabold text-base">👤</span>
+                    <span>Identificação do Participante ou Grupo</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1" htmlFor="participantNameInput">
+                        Nome do Representante / Votante *
+                      </label>
+                      <input
+                        id="participantNameInput"
+                        type="text"
+                        required
+                        value={participantName}
+                        onChange={(e) => setParticipantName(e.target.value)}
+                        placeholder="Ex: Prof. Carlos Santos (DRE Penha)"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">
+                        Segmento / DRE / Unidade Educacional
+                      </label>
+                      <input
+                        type="text"
+                        value={participantRole}
+                        onChange={(e) => setParticipantRole(e.target.value)}
+                        placeholder="Ex: GT Clima / EMEF Gabriel Prestes / COPED"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Filtro por Eixo */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-1">Eixo:</span>
+                    {axes.map(axis => (
+                      <button
+                        key={axis}
+                        type="button"
+                        onClick={() => setFilterAxis(axis)}
+                        className={`text-xs px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition-all ${
+                          filterAxis === axis
+                            ? "bg-emerald-600 text-white shadow-sm"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        {axis}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-xs text-slate-500 font-medium">
+                    Exibindo {filteredObjectives.length} de {INITIAL_OBJECTIVES.length} itens
+                  </span>
+                </div>
+
+                {/* Lista de Cards de Objetivos */}
+                {}
+                <div className="space-y-4">
+                  {filteredObjectives.map((obj) => {
+                    const currentVote = votes[obj.id] || {
+                      decision: 'manter',
+                      newText: '',
+                      groupedWith: [],
+                      justification: ''
+                    };
+
+                    return (
+                      <div 
+                        key={obj.id} 
+                        className={`bg-white rounded-2xl border transition-all ${
+                          obj.isFinalDraft 
+                            ? 'border-emerald-200/90 shadow-sm' 
+                            : 'border-slate-200 shadow-sm'
+                        }`}
+                      >
+                        {/* Header do Card */}
+                        <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/60 rounded-t-2xl flex flex-col md:flex-row md:items-center justify-between gap-2">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
+                              <span className="px-2.5 py-0.5 rounded text-xs font-mono font-bold bg-slate-900 text-white">
+                                Item {obj.code}
+                              </span>
+                              <span className="text-xs font-bold px-2.5 py-0.5 rounded bg-slate-200 text-slate-700">
+                                {obj.axis}
+                              </span>
+                              {obj.isFinalDraft ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  <IconCheckCircle />
+                                  REDAÇÃO FINAL CONSOLIDADA PELO GT
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                                  <IconEdit />
+                                  EM DISCUSSÃO / REFINAMENTO
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="text-base font-bold text-slate-900">
+                              {obj.title}
+                            </h3>
+                          </div>
+                        </div>
+
+                        {/* Texto do Objetivo */}
+                        <div className="px-4 sm:px-5 py-3.5 bg-slate-50/30">
+                          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                            Texto em Pauta:
+                          </div>
+                          <p className="text-sm text-slate-800 leading-relaxed font-normal bg-white p-3.5 rounded-xl border border-slate-200 shadow-inner">
+                            "{obj.description}"
+                          </p>
+                        </div>
+
+                        {/* Botões de Decisão */}
+                        <div className="p-4 sm:p-5 space-y-4">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                              Sua Decisão:
+                            </label>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                              
+                              {/* Manter */}
+                              <label
+                                className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                                  currentVote.decision === 'manter'
+                                    ? 'bg-emerald-50 border-emerald-500 text-emerald-900 ring-2 ring-emerald-400/20 shadow-sm'
+                                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`vote-${obj.id}`}
+                                  value="manter"
+                                  checked={currentVote.decision === 'manter'}
+                                  onChange={() => handleDecisionChange(obj.id, 'manter')}
+                                  className="w-4 h-4 text-emerald-600"
+                                />
+                                <IconCheckCircle />
+                                <span>Manter</span>
+                              </label>
+
+                              {/* Alterar Redação */}
+                              <label
+                                className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                                  currentVote.decision === 'alterar'
+                                    ? 'bg-amber-50 border-amber-500 text-amber-900 ring-2 ring-amber-400/20 shadow-sm'
+                                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`vote-${obj.id}`}
+                                  value="alterar"
+                                  checked={currentVote.decision === 'alterar'}
+                                  onChange={() => handleDecisionChange(obj.id, 'alterar')}
+                                  className="w-4 h-4 text-amber-600"
+                                />
+                                <IconEdit />
+                                <span>Alterar Redação</span>
+                              </label>
+
+                              {/* Agrupar */}
+                              <label
+                                className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                                  currentVote.decision === 'agrupar'
+                                    ? 'bg-indigo-50 border-indigo-500 text-indigo-900 ring-2 ring-indigo-400/20 shadow-sm'
+                                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`vote-${obj.id}`}
+                                  value="agrupar"
+                                  checked={currentVote.decision === 'agrupar'}
+                                  onChange={() => handleDecisionChange(obj.id, 'agrupar')}
+                                  className="w-4 h-4 text-indigo-600"
+                                />
+                                <IconLayers />
+                                <span>Agrupar</span>
+                              </label>
+
+                              {/* Excluir */}
+                              <label
+                                className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                                  currentVote.decision === 'excluir'
+                                    ? 'bg-rose-50 border-rose-500 text-rose-900 ring-2 ring-rose-400/20 shadow-sm'
+                                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`vote-${obj.id}`}
+                                  value="excluir"
+                                  checked={currentVote.decision === 'excluir'}
+                                  onChange={() => handleDecisionChange(obj.id, 'excluir')}
+                                  className="w-4 h-4 text-rose-600"
+                                />
+                                <IconTrash />
+                                <span>Excluir</span>
+                              </label>
+
+                            </div>
+                          </div>
+
+                          {/* Seletor de Agrupamento Interativo */}
+                          {}
+                          {currentVote.decision === 'agrupar' && (
+                            <div className="bg-indigo-50/80 border border-indigo-200 rounded-xl p-4 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-1">
+                                  <IconLayers />
+                                  Assinalar com qual ou quais outros objetivos agrupar:
+                                </span>
+                                <span className="text-[10px] text-indigo-700 bg-indigo-100 font-bold px-2 py-0.5 rounded">
+                                  Sincronização Automática
+                                </span>
+                              </div>
+                              <p className="text-xs text-indigo-800">
+                                Ao selecionar outro objetivo, ele também ficará marcado como "Agrupar" com o item {obj.code} e compartilhará o mesmo texto sugerido.
+                              </p>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1 max-h-52 overflow-y-auto custom-scrollbar">
+                                {INITIAL_OBJECTIVES.filter(o => o.id !== obj.id).map(targetObj => {
+                                  const isSelected = (currentVote.groupedWith || []).includes(targetObj.id);
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={targetObj.id}
+                                      onClick={() => handleToggleGroup(obj.id, targetObj.id)}
+                                      className={`flex items-start gap-2 p-2.5 rounded-lg text-left text-xs transition-all border ${
+                                        isSelected
+                                          ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm font-semibold'
+                                          : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+                                      }`}
+                                    >
+                                      <span className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 text-[10px] ${
+                                        isSelected ? 'bg-white text-indigo-700 font-bold' : 'border border-slate-300 bg-slate-50'
+                                      }`}>
+                                        {isSelected ? '✓' : ''}
+                                      </span>
+                                      <div>
+                                        <span className="font-mono font-bold">[{targetObj.code}]</span> {targetObj.title}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Campo de Sugestão de Nova Redação */}
+                          {(currentVote.decision === 'alterar' || currentVote.decision === 'agrupar') && (
+                            <div className="space-y-1.5">
+                              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                {currentVote.decision === 'agrupar' 
+                                  ? "Sugestão de Redação Unificada para o Grupo de Objetivos:" 
+                                  : "Sugestão de Nova Redação:"}
+                              </label>
+                              <textarea
+                                rows={3}
+                                value={currentVote.newText || ""}
+                                onChange={(e) => handleNewTextChange(obj.id, e.target.value)}
+                                placeholder="Escreva aqui a nova proposta de texto..."
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white"
+                              />
+                            </div>
+                          )}
+
+                          {/* Campo Universal de Justificativa e Comentários */}
+                          <div className="space-y-1">
+                            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+                              Justificativa e Comentários (Opcional):
+                            </label>
+                            <input
+                              type="text"
+                              value={currentVote.justification || ""}
+                              onChange={(e) => handleJustificationChange(obj.id, e.target.value)}
+                              placeholder="Ex: Adequação com a meta municipal / Clareza de redação..."
+                              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 text-xs bg-slate-50 focus:bg-white"
+                            />
+                          </div>
+
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Barra de Envio */}
+                {}
+                <div className="sticky bottom-4 z-20 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4 border border-slate-700">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center font-extrabold text-white">
+                      11
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400 font-semibold">Cédula de Voto</div>
+                      <div className="text-sm font-bold">
+                        {participantName ? `Participante: ${participantName}` : "Preencha seu nome para registrar"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={!participantName.trim() || isSyncing}
+                    className={`w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+                      participantName.trim() && !isSyncing
+                        ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer shadow-lg'
+                        : 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    <IconSend />
+                    {isSyncing ? "Enviando..." : "Registrar e Consolidar Meu Voto"}
+                  </button>
+                </div>
+
+              </form>
+            )}
+
+            {/* ======================= ABA 2: PAINEL CONSOLIDADO ======================= */}
+            {}
+            {activeTab === "summary" && (
+              <div className="space-y-6">
+                
+                {/* Header do Consolidado */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
+                      <IconBarChart />
+                      Resultado Geral do GT
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-900 mt-1">
+                      Painel Consolidado de Deliberações
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Total de votos contabilizados: <strong className="text-slate-800">{submittedBallots.length}</strong> participante(s) / representações.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={handleNewBallot}
+                      className="px-3.5 py-2 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-xs font-bold transition-all"
+                    >
+                      + Novo Voto
+                    </button>
+                    <button
+                      onClick={handleCopySummary}
+                      className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all"
+                    >
+                      {copiedStatus ? "Copiado!" : "Copiar Resumo"}
+                    </button>
+                    <button
+                      onClick={handleExportData}
+                      disabled={submittedBallots.length === 0}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                        submittedBallots.length > 0
+                          ? 'bg-slate-900 hover:bg-slate-800 text-white'
+                          : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      <IconDownload />
+                      Baixar JSON
+                    </button>
+                  </div>
+                </div>
+
+                {submittedBallots.length === 0 ? (
+                  <div className="bg-white p-12 text-center rounded-2xl border border-dashed border-slate-300">
+                    <p className="text-base font-bold text-slate-700 mb-1">Nenhum voto registrado ainda</p>
+                    <p className="text-xs text-slate-500 mb-4">Preencha a cédula para ver as estatísticas consolidadas.</p>
+                    <button
+                      onClick={() => setActiveTab("vote")}
+                      className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700"
+                    >
+                      Ir para Votação
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {statsByObjective.map((item) => {
+                      const total = item.totalCast || 1;
+                      const pManter = Math.round((item.counts.manter / total) * 100);
+                      const pAlterar = Math.round((item.counts.alterar / total) * 100);
+                      const pExcluir = Math.round((item.counts.excluir / total) * 100);
+                      const pAgrupar = Math.round((item.counts.agrupar / total) * 100);
+
+                      return (
+                        <div key={item.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+                          
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-mono text-xs font-bold px-2 py-0.5 bg-slate-900 text-white rounded">
+                                  {item.code}
+                                </span>
+                                <span className="text-xs font-semibold text-slate-600">
+                                  {item.axis}
+                                </span>
+                                {item.isFinalDraft && (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
+                                    Redação Final Consolidada
+                                  </span>
+                                )}
+                              </div>
+                              <h3 className="text-base font-bold text-slate-900">
+                                {item.title}
+                              </h3>
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-slate-600 italic bg-slate-50 p-3 rounded-xl border border-slate-100">
+                            "{item.description}"
+                          </p>
+
+                          {/* Placar de Votação */}
+                          <div className="space-y-1.5">
+                            <div className="text-xs font-bold text-slate-700">Contagem dos Votos ({total} votante/s):</div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-center">
+                                <div className="text-[11px] font-bold text-emerald-800">Manter</div>
+                                <div className="text-base font-extrabold text-emerald-900">{item.counts.manter} ({pManter}%)</div>
+                              </div>
+                              <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl text-center">
+                                <div className="text-[11px] font-bold text-amber-800">Alterar</div>
+                                <div className="text-base font-extrabold text-amber-900">{item.counts.alterar} ({pAlterar}%)</div>
+                              </div>
+                              <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl text-center">
+                                <div className="text-[11px] font-bold text-indigo-800">Agrupar</div>
+                                <div className="text-base font-extrabold text-indigo-900">{item.counts.agrupar} ({pAgrupar}%)</div>
+                              </div>
+                              <div className="bg-rose-50 border border-rose-200 p-2.5 rounded-xl text-center">
+                                <div className="text-[11px] font-bold text-rose-800">Excluir</div>
+                                <div className="text-base font-extrabold text-rose-900">{item.counts.excluir} ({pExcluir}%)</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Propostas de Redação Registradas */}
+                          {item.suggestions.length > 0 && (
+                            <div className="space-y-2 pt-2">
+                              <div className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                                <IconEdit />
+                                Sugestões de Redação Recebidas ({item.suggestions.length}):
+                              </div>
+                              <div className="space-y-1.5">
+                                {item.suggestions.map((sug, idx) => (
+                                  <div key={idx} className="bg-amber-50/70 border border-amber-200 p-3 rounded-xl text-xs text-slate-800">
+                                    <div className="font-bold text-amber-900 mb-0.5 flex items-center justify-between">
+                                      <span>{sug.author}</span>
+                                      <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 bg-amber-200 rounded">
+                                        {sug.decision}
+                                      </span>
+                                    </div>
+                                    <p className="text-slate-900 font-medium">"{sug.text}"</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Comentários */}
+                          {item.comments.length > 0 && (
+                            <div className="space-y-1.5 pt-1">
+                              <div className="text-xs font-bold text-slate-700">Comentários / Justificativas:</div>
+                              <div className="space-y-1">
+                                {item.comments.map((comm, idx) => (
+                                  <div key={idx} className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-xs text-slate-700">
+                                    <strong className="text-slate-900">{comm.author}:</strong> {comm.text}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+              </div>
+            )}
+
+          </main>
+
+          <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
+            Grupo de Trabalho de Clima e Sustentabilidade • RME-SP
+          </footer>
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
