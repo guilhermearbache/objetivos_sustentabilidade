@@ -8,7 +8,7 @@
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- React 18 e Babel CDN para rodar JSX diretamente no navegador -->
+  <!-- React 18 e Babel CDN -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -39,20 +39,19 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, addDoc, onSnapshot, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     window.firebaseApp = {
       initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
-      getFirestore, collection, addDoc, onSnapshot, doc
+      getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot
     };
   </script>
 
   <script type="text/babel">
     const { useState, useEffect, useMemo } = React;
 
-    // Estrutura inicial dos Objetivos do GT
     const INITIAL_OBJECTIVES = [
-      // Eixo 1 & 2: Educação Ambiental e Conforto/Segurança (Redação Final Consolidada)
+      // Eixo 1 & 2: Educação Ambiental e Conforto/Segurança (Redação Final Consolidada pelo GT)
       {
         id: "obj-1-1",
         code: "1.1",
@@ -115,7 +114,7 @@
         axis: "Mitigação e Sustentabilidade",
         category: "Gestão de Energia",
         title: "Fontes Renováveis e Eficiência",
-        description: "Diminuir o consumo e aumentar o uso de fontes renováveis (como paineis solares) na operação da rede.",
+        description: "Diminuir o consumo e aumentar o uso de fontes renováveis (como painéis solares) na operação da rede.",
         isFinalDraft: false,
       },
       {
@@ -176,6 +175,12 @@
       </svg>
     );
 
+    const IconSplit = () => (
+      <svg className="w-4 h-4 text-purple-600 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+      </svg>
+    );
+
     const IconTrash = () => (
       <svg className="w-4 h-4 text-rose-600 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
         <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -194,19 +199,22 @@
       </svg>
     );
 
-    const IconDownload = () => (
+    const IconPlus = () => (
       <svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
       </svg>
     );
 
     function App() {
       const [participantName, setParticipantName] = useState("");
-      const [participantRole, setParticipantRole] = useState("");
       const [activeTab, setActiveTab] = useState("vote");
       const [filterAxis, setFilterAxis] = useState("Todos");
       const [copiedStatus, setCopiedStatus] = useState(false);
       const [isSyncing, setIsSyncing] = useState(false);
+      const [validationErrorMsg, setValidationErrorMsg] = useState("");
+
+      // Estado para propostas de novos objetivos por Eixo
+      const [customProposals, setCustomProposals] = useState([]);
 
       // Estado dos votos do usuário corrente
       const [votes, setVotes] = useState(() => {
@@ -215,6 +223,7 @@
           initial[obj.id] = {
             decision: 'manter',
             newText: '',
+            splitProposals: ['', ''],
             groupedWith: [],
             justification: ''
           };
@@ -222,7 +231,7 @@
         return initial;
       });
 
-      // Lista de todas as cédulas enviadas (compartilhada no mesmo navegador ou Firebase)
+      // Lista de todas as cédulas enviadas
       const [submittedBallots, setSubmittedBallots] = useState(() => {
         try {
           const saved = localStorage.getItem('gt_clima_ballots');
@@ -232,7 +241,6 @@
         }
       });
 
-      // Conexão e Sincronização em Tempo Real (Firebase Firestore se disponível)
       useEffect(() => {
         let unsubscribe = null;
         if (window.firebaseApp && window.firebaseApp.getFirestore) {
@@ -255,15 +263,15 @@
                 const votesRef = collection(db, 'artifacts', appId, 'public', 'data', 'votes');
                 unsubscribe = onSnapshot(votesRef, (snapshot) => {
                   const cloudBallots = [];
-                  snapshot.forEach((doc) => {
-                    cloudBallots.push({ id: doc.id, ...doc.data() });
+                  snapshot.forEach((docSnapshot) => {
+                    cloudBallots.push({ firebaseDocId: docSnapshot.id, ...docSnapshot.data() });
                   });
-                  if (cloudBallots.length > 0) {
-                    setSubmittedBallots(cloudBallots);
+                  setSubmittedBallots(cloudBallots);
+                  try {
                     localStorage.setItem('gt_clima_ballots', JSON.stringify(cloudBallots));
-                  }
+                  } catch(e) {}
                 }, (error) => {
-                  console.warn("Erro ao escutar atualizações em nuvem:", error);
+                  console.warn("Nuvem em modo offline ou restrito:", error);
                 });
               };
 
@@ -276,7 +284,7 @@
               }
             }
           } catch(err) {
-            console.log("Serviço em nuvem operando em modo local.", err);
+            console.log("Executando em modo local.", err);
           }
         }
         return () => {
@@ -284,15 +292,22 @@
         };
       }, []);
 
-      // Eixos únicos para filtro
       const axes = useMemo(() => {
         return ["Todos", ...Array.from(new Set(INITIAL_OBJECTIVES.map(o => o.axis)))];
       }, []);
 
       const handleDecisionChange = (objId, newDecision) => {
+        setValidationErrorMsg("");
         setVotes(prev => {
           const current = prev[objId] || {};
-          const updated = { ...prev, [objId]: { ...current, decision: newDecision } };
+          const updated = { 
+            ...prev, 
+            [objId]: { 
+              ...current, 
+              decision: newDecision,
+              splitProposals: current.splitProposals && current.splitProposals.length >= 2 ? current.splitProposals : ['', ''] 
+            } 
+          };
           
           if (newDecision !== 'agrupar' && current.groupedWith?.length > 0) {
             current.groupedWith.forEach(targetId => {
@@ -311,12 +326,12 @@
         });
       };
 
-      // Alternar agrupamento com sincronização automática do outro item e redação conjunta
       const handleToggleGroup = (sourceId, targetId) => {
+        setValidationErrorMsg("");
         setVotes(prev => {
           const updated = { ...prev };
-          const sourceVote = { ...(updated[sourceId] || { decision: 'agrupar', groupedWith: [], newText: '', justification: '' }) };
-          const targetVote = { ...(updated[targetId] || { decision: 'agrupar', groupedWith: [], newText: '', justification: '' }) };
+          const sourceVote = { ...(updated[sourceId] || { decision: 'agrupar', groupedWith: [], newText: '', justification: '', splitProposals: ['', ''] }) };
+          const targetVote = { ...(updated[targetId] || { decision: 'agrupar', groupedWith: [], newText: '', justification: '', splitProposals: ['', ''] }) };
 
           const isAlreadyGrouped = (sourceVote.groupedWith || []).includes(targetId);
 
@@ -344,6 +359,43 @@
         });
       };
 
+      const handleSplitTextChange = (objId, index, value) => {
+        setVotes(prev => {
+          const current = { ...(prev[objId] || {}) };
+          const splits = [...(current.splitProposals || ['', ''])];
+          splits[index] = value;
+          return {
+            ...prev,
+            [objId]: { ...current, splitProposals: splits }
+          };
+        });
+      };
+
+      const handleAddSplitField = (objId) => {
+        setVotes(prev => {
+          const current = { ...(prev[objId] || {}) };
+          const splits = [...(current.splitProposals || ['', '']), ''];
+          return {
+            ...prev,
+            [objId]: { ...current, splitProposals: splits }
+          };
+        });
+      };
+
+      const handleRemoveSplitField = (objId, index) => {
+        setVotes(prev => {
+          const current = { ...(prev[objId] || {}) };
+          let splits = [...(current.splitProposals || ['', ''])];
+          if (splits.length > 2) {
+            splits = splits.filter((_, i) => i !== index);
+          }
+          return {
+            ...prev,
+            [objId]: { ...current, splitProposals: splits }
+          };
+        });
+      };
+
       const handleNewTextChange = (objId, text) => {
         setVotes(prev => {
           const updated = { ...prev };
@@ -363,40 +415,71 @@
       };
 
       const handleJustificationChange = (objId, text) => {
+        setValidationErrorMsg("");
         setVotes(prev => ({
           ...prev,
           [objId]: { ...prev[objId], justification: text }
         }));
       };
 
+      const handleAddCustomProposalByAxis = (axisName) => {
+        setCustomProposals(prev => [
+          ...prev,
+          { id: 'prop-' + Date.now(), axis: axisName, title: '', text: '', justification: '' }
+        ]);
+      };
+
+      const handleRemoveCustomProposal = (id) => {
+        setCustomProposals(prev => prev.filter(p => p.id !== id));
+      };
+
+      const handleUpdateCustomProposal = (id, field, value) => {
+        setCustomProposals(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
+      };
+
       const handleSubmitVote = async (e) => {
         e.preventDefault();
-        if (!participantName.trim()) {
-          const input = document.getElementById('participantNameInput');
-          if (input) input.focus();
+        setValidationErrorMsg("");
+
+        // VALIDAÇÃO: Justificativa obrigatória para decisões diferentes de 'manter'
+        const invalidItems = [];
+        INITIAL_OBJECTIVES.forEach(obj => {
+          const v = votes[obj.id];
+          if (v && v.decision !== 'manter') {
+            if (!v.justification || !v.justification.trim()) {
+              invalidItems.push(obj.code);
+            }
+          }
+        });
+
+        if (invalidItems.length > 0) {
+          setValidationErrorMsg(`A justificativa é OBRIGATÓRIA para decisões além de "Manter"! Por favor, preencha no(s) item(ns): ${invalidItems.join(", ")}.`);
+          const firstInvalid = document.getElementById(`card-${invalidItems[0]}`);
+          if (firstInvalid) {
+            firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
           return;
         }
 
         setIsSyncing(true);
 
         const newBallot = {
-          voterName: participantName,
-          voterRole: participantRole || "Membro do GT",
+          localId: 'ballot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+          voterName: participantName.trim() || "Anônimo",
           submittedAt: new Date().toLocaleString('pt-BR'),
-          votes: JSON.parse(JSON.stringify(votes))
+          votes: JSON.parse(JSON.stringify(votes)),
+          customProposals: JSON.parse(JSON.stringify(customProposals))
         };
 
-        // Salvar localmente no navegador
-        const updatedBallots = [newBallot, ...submittedBallots];
-        setSubmittedBallots(updatedBallots);
+        const updatedLocal = [newBallot, ...submittedBallots];
+        setSubmittedBallots(updatedLocal);
         try {
-          localStorage.setItem('gt_clima_ballots', JSON.stringify(updatedBallots));
+          localStorage.setItem('gt_clima_ballots', JSON.stringify(updatedLocal));
         } catch(e) {}
 
-        // Tentar salvar na Nuvem para compartilhamento com outros votantes
         if (window.firebaseApp && window.firebaseApp.getFirestore) {
           try {
-            const { getFirestore, collection, addDoc, getAuth } = window.firebaseApp;
+            const { getFirestore, collection, addDoc } = window.firebaseApp;
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-votacao-rmesp';
             let firebaseConfig = null;
             if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
@@ -408,7 +491,7 @@
               await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'votes'), newBallot);
             }
           } catch(err) {
-            console.log("Voto registrado no dispositivo local.", err);
+            console.log("Voto registrado localmente.", err);
           }
         }
 
@@ -416,12 +499,47 @@
         setActiveTab("summary");
       };
 
+      const handleDeleteBallot = async (ballotToDelete) => {
+        if (!window.confirm(`Deseja realmente excluir a cédula de "${ballotToDelete.voterName}" enviada em ${ballotToDelete.submittedAt}?`)) {
+          return;
+        }
+
+        if (ballotToDelete.firebaseDocId && window.firebaseApp && window.firebaseApp.getFirestore) {
+          try {
+            const { getFirestore, doc, deleteDoc } = window.firebaseApp;
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-votacao-rmesp';
+            let firebaseConfig = null;
+            if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
+              firebaseConfig = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
+            }
+            if (firebaseConfig) {
+              const app = window.firebaseApp.initializeApp(firebaseConfig);
+              const db = getFirestore(app);
+              await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'votes', ballotToDelete.firebaseDocId));
+            }
+          } catch(e) {
+            console.log("Erro ao excluir na nuvem", e);
+          }
+        }
+
+        const filtered = submittedBallots.filter(b => 
+          (b.firebaseDocId && b.firebaseDocId !== ballotToDelete.firebaseDocId) ||
+          (b.localId && b.localId !== ballotToDelete.localId) ||
+          (b.submittedAt !== ballotToDelete.submittedAt)
+        );
+        setSubmittedBallots(filtered);
+        try {
+          localStorage.setItem('gt_clima_ballots', JSON.stringify(filtered));
+        } catch(e) {}
+      };
+
       const handleNewBallot = () => {
         setParticipantName("");
-        setParticipantRole("");
+        setValidationErrorMsg("");
+        setCustomProposals([]);
         const reset = {};
         INITIAL_OBJECTIVES.forEach(obj => {
-          reset[obj.id] = { decision: 'manter', newText: '', groupedWith: [], justification: '' };
+          reset[obj.id] = { decision: 'manter', newText: '', splitProposals: ['', ''], groupedWith: [], justification: '' };
         });
         setVotes(reset);
         setActiveTab("vote");
@@ -429,8 +547,9 @@
 
       const statsByObjective = useMemo(() => {
         return INITIAL_OBJECTIVES.map(obj => {
-          const counts = { manter: 0, alterar: 0, excluir: 0, agrupar: 0 };
+          const counts = { manter: 0, alterar: 0, excluir: 0, agrupar: 0, dividir: 0 };
           const suggestions = [];
+          const splitSuggestions = [];
           const comments = [];
 
           submittedBallots.forEach(ballot => {
@@ -440,8 +559,14 @@
               if (v.newText) {
                 suggestions.push({ author: ballot.voterName, text: v.newText, decision: v.decision });
               }
+              if (v.decision === 'dividir' && v.splitProposals) {
+                const validSplits = v.splitProposals.filter(sp => sp && sp.trim());
+                if (validSplits.length > 0) {
+                  splitSuggestions.push({ author: ballot.voterName, splits: validSplits });
+                }
+              }
               if (v.justification) {
-                comments.push({ author: ballot.voterName, text: v.justification });
+                comments.push({ author: ballot.voterName, text: v.justification, decision: v.decision });
               }
             }
           });
@@ -450,10 +575,25 @@
             ...obj,
             counts,
             suggestions,
+            splitSuggestions,
             comments,
             totalCast: submittedBallots.length
           };
         });
+      }, [submittedBallots]);
+
+      const allCustomProposalsConsolidated = useMemo(() => {
+        const list = [];
+        submittedBallots.forEach(ballot => {
+          if (ballot.customProposals && Array.isArray(ballot.customProposals)) {
+            ballot.customProposals.forEach(p => {
+              if (p.text || p.title) {
+                list.push({ ...p, author: ballot.voterName });
+              }
+            });
+          }
+        });
+        return list;
       }, [submittedBallots]);
 
       const handleExportData = () => {
@@ -461,6 +601,7 @@
           exportDate: new Date().toISOString(),
           totalParticipants: submittedBallots.length,
           objectives: statsByObjective,
+          customProposals: allCustomProposalsConsolidated,
           individualBallots: submittedBallots
         };
 
@@ -480,18 +621,35 @@
 
         statsByObjective.forEach(obj => {
           summaryText += `[${obj.code}] ${obj.title} (${obj.axis})\n`;
-          summaryText += `Status: ${obj.isFinalDraft ? "Redação Final (Trabalhada pelo GT)" : "Em Refinamento"}\n`;
-          summaryText += `Placar: Manter: ${obj.counts.manter} | Alterar: ${obj.counts.alterar} | Agrupar: ${obj.counts.agrupar} | Excluir: ${obj.counts.excluir}\n`;
+          summaryText += `Status: ${obj.isFinalDraft ? "Redação Final Consolidada" : "Em Refinamento"}\n`;
+          summaryText += `Placar: Manter: ${obj.counts.manter} | Alterar: ${obj.counts.alterar} | Dividir: ${obj.counts.dividir} | Agrupar: ${obj.counts.agrupar} | Excluir: ${obj.counts.excluir}\n`;
           if (obj.suggestions.length > 0) {
             summaryText += `Sugestões de Redação:\n`;
             obj.suggestions.forEach(s => summaryText += `  • "${s.text}" (${s.author})\n`);
           }
+          if (obj.splitSuggestions.length > 0) {
+            summaryText += `Propostas de Divisão:\n`;
+            obj.splitSuggestions.forEach(sp => {
+              summaryText += `  • Proposto por ${sp.author}:\n`;
+              sp.splits.forEach((part, i) => summaryText += `     ${i+1}. ${part}\n`);
+            });
+          }
           if (obj.comments.length > 0) {
-            summaryText += `Comentários/Justificativas:\n`;
-            obj.comments.forEach(c => summaryText += `  • ${c.author}: ${c.text}\n`);
+            summaryText += `Justificativas / Comentários:\n`;
+            obj.comments.forEach(c => summaryText += `  • [${c.decision.toUpperCase()}] ${c.author}: ${c.text}\n`);
           }
           summaryText += `--------------------------------------------------\n\n`;
         });
+
+        if (allCustomProposalsConsolidated.length > 0) {
+          summaryText += `PROPOSTAS DE NOVOS OBJETIVOS POR EIXO:\n`;
+          allCustomProposalsConsolidated.forEach((p, i) => {
+            summaryText += `${i+1}. [Eixo: ${p.axis}] por ${p.author}\n`;
+            if (p.title) summaryText += `   Título: ${p.title}\n`;
+            summaryText += `   Proposta: ${p.text}\n`;
+            if (p.justification) summaryText += `   Justificativa: ${p.justification}\n`;
+          });
+        }
 
         const textArea = document.createElement("textarea");
         textArea.value = summaryText;
@@ -505,9 +663,11 @@
         document.body.removeChild(textArea);
       };
 
-      const filteredObjectives = useMemo(() => {
-        if (filterAxis === "Todos") return INITIAL_OBJECTIVES;
-        return INITIAL_OBJECTIVES.filter(o => o.axis === filterAxis);
+      // Agrupamento dos Objetivos por Eixo para renderização
+      const displayedAxesList = useMemo(() => {
+        const uniqueAxes = Array.from(new Set(INITIAL_OBJECTIVES.map(o => o.axis)));
+        if (filterAxis === "Todos") return uniqueAxes;
+        return uniqueAxes.filter(a => a === filterAxis);
       }, [filterAxis]);
 
       return (
@@ -528,7 +688,7 @@
                     <span className="text-xs text-emerald-200">GT Clima e Sustentabilidade</span>
                   </div>
                   <h1 className="text-base sm:text-lg font-bold tracking-tight">
-                    Painel de Votação de Objetivos Estratégicos
+                    Votação Coletiva de Objetivos Estratégicos
                   </h1>
                 </div>
               </div>
@@ -566,67 +726,59 @@
             </div>
           </header>
 
-          {/* Banner Metodológico */}
-          <div className="bg-emerald-950 text-emerald-100 text-xs py-2 px-4 border-b border-emerald-800/60">
+          {/* Banner de aviso */}
+          <div className="bg-emerald-950 text-emerald-100 text-xs py-2.5 px-4 border-b border-emerald-800/60">
             <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
                 <span>
-                  <strong>Orientação:</strong> Os itens <strong>1.1 a 2.2</strong> já possuem <em>Redação Final Consolidada</em> pelo GT. Os demais (3.1 a 4.3) estão abertos para deliberação e redação.
+                  <strong>Orientação:</strong> Os itens <strong>1.1 a 2.2</strong> têm <em>Redação Final Consolidada</em>. Os demais estão abertos para alteração, agrupamento ou divisão.
                 </span>
               </div>
-              <span className="text-emerald-300 font-mono">11 Objetivos em Pauta</span>
+              <span className="text-emerald-300 font-mono font-bold">11 Objetivos em Pauta</span>
             </div>
           </div>
 
           {/* Conteúdo Principal */}
           <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
             
-            {/* ======================= ABA 1: CÉDULA DE VOTO ======================= */}
+            {}
             {activeTab === "vote" && (
               <form onSubmit={handleSubmitVote} className="space-y-6">
                 
-                {/* Identificação do Votante */}
-                {}
-                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
-                  <div className="flex items-center gap-2 text-slate-800 font-bold mb-3 text-sm">
-                    <span className="text-emerald-600 font-extrabold text-base">👤</span>
-                    <span>Identificação do Participante ou Grupo</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Nome Opcional */}
+                <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200">
+                  <div className="flex items-center justify-between gap-2">
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1" htmlFor="participantNameInput">
-                        Nome do Representante / Votante *
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1" htmlFor="participantNameInput">
+                        Seu Nome / Apelido (Opcional)
                       </label>
                       <input
                         id="participantNameInput"
                         type="text"
-                        required
                         value={participantName}
                         onChange={(e) => setParticipantName(e.target.value)}
-                        placeholder="Ex: Prof. Carlos Santos (DRE Penha)"
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">
-                        Segmento / DRE / Unidade Educacional
-                      </label>
-                      <input
-                        type="text"
-                        value={participantRole}
-                        onChange={(e) => setParticipantRole(e.target.value)}
-                        placeholder="Ex: GT Clima / EMEF Gabriel Prestes / COPED"
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white"
+                        placeholder="Ex: Prof. Carlos ou deixe em branco para voto anônimo"
+                        className="w-full sm:w-96 px-3.5 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white"
                       />
                     </div>
                   </div>
                 </div>
 
+                {/* Banner de Erro de Validação de Justificativa */}
+                {validationErrorMsg && (
+                  <div className="bg-rose-50 border-2 border-rose-400 text-rose-900 p-4 rounded-2xl flex items-start gap-3 shadow-md animate-bounce">
+                    <span className="text-xl">⚠️</span>
+                    <div className="text-xs sm:text-sm font-bold">
+                      {validationErrorMsg}
+                    </div>
+                  </div>
+                )}
+
                 {/* Filtro por Eixo */}
                 <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-1">Eixo:</span>
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-1">Filtrar Eixo:</span>
                     {axes.map(axis => (
                       <button
                         key={axis}
@@ -642,246 +794,428 @@
                       </button>
                     ))}
                   </div>
-                  <span className="text-xs text-slate-500 font-medium">
-                    Exibindo {filteredObjectives.length} de {INITIAL_OBJECTIVES.length} itens
-                  </span>
                 </div>
 
-                {/* Lista de Cards de Objetivos */}
-                {}
-                <div className="space-y-4">
-                  {filteredObjectives.map((obj) => {
-                    const currentVote = votes[obj.id] || {
-                      decision: 'manter',
-                      newText: '',
-                      groupedWith: [],
-                      justification: ''
-                    };
+                {/* Blocos por Eixo */}
+                <div className="space-y-8">
+                  {displayedAxesList.map(axisName => {
+                    const axisObjs = INITIAL_OBJECTIVES.filter(o => o.axis === axisName);
+                    const axisProposals = customProposals.filter(p => p.axis === axisName);
 
                     return (
-                      <div 
-                        key={obj.id} 
-                        className={`bg-white rounded-2xl border transition-all ${
-                          obj.isFinalDraft 
-                            ? 'border-emerald-200/90 shadow-sm' 
-                            : 'border-slate-200 shadow-sm'
-                        }`}
-                      >
-                        {/* Header do Card */}
-                        <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/60 rounded-t-2xl flex flex-col md:flex-row md:items-center justify-between gap-2">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2 mb-1">
-                              <span className="px-2.5 py-0.5 rounded text-xs font-mono font-bold bg-slate-900 text-white">
-                                Item {obj.code}
-                              </span>
-                              <span className="text-xs font-bold px-2.5 py-0.5 rounded bg-slate-200 text-slate-700">
-                                {obj.axis}
-                              </span>
-                              {obj.isFinalDraft ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                  <IconCheckCircle />
-                                  REDAÇÃO FINAL CONSOLIDADA PELO GT
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
-                                  <IconEdit />
-                                  EM DISCUSSÃO / REFINAMENTO
-                                </span>
-                              )}
-                            </div>
-                            <h3 className="text-base font-bold text-slate-900">
-                              {obj.title}
-                            </h3>
-                          </div>
+                      <div key={axisName} className="space-y-4 bg-slate-100/60 p-4 sm:p-5 rounded-3xl border border-slate-200/80">
+                        
+                        {/* Header do Eixo */}
+                        <div className="flex items-center justify-between border-b border-slate-300 pb-2">
+                          <h2 className="text-sm sm:text-base font-extrabold text-slate-800 uppercase tracking-wide flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-emerald-600 inline-block"></span>
+                            Eixo: {axisName}
+                          </h2>
+                          <span className="text-xs font-semibold text-slate-500 bg-white px-2.5 py-0.5 rounded-full border border-slate-200">
+                            {axisObjs.length} objetivo(s)
+                          </span>
                         </div>
 
-                        {/* Texto do Objetivo */}
-                        <div className="px-4 sm:px-5 py-3.5 bg-slate-50/30">
-                          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                            Texto em Pauta:
-                          </div>
-                          <p className="text-sm text-slate-800 leading-relaxed font-normal bg-white p-3.5 rounded-xl border border-slate-200 shadow-inner">
-                            "{obj.description}"
-                          </p>
-                        </div>
+                        {/* Objetivos do Eixo */}
+                        <div className="space-y-4">
+                          {axisObjs.map((obj) => {
+                            const currentVote = votes[obj.id] || {
+                              decision: 'manter',
+                              newText: '',
+                              splitProposals: ['', ''],
+                              groupedWith: [],
+                              justification: ''
+                            };
 
-                        {/* Botões de Decisão */}
-                        <div className="p-4 sm:p-5 space-y-4">
-                          <div>
-                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                              Sua Decisão:
-                            </label>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                              
-                              {/* Manter */}
-                              <label
-                                className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
-                                  currentVote.decision === 'manter'
-                                    ? 'bg-emerald-50 border-emerald-500 text-emerald-900 ring-2 ring-emerald-400/20 shadow-sm'
-                                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                            const needsJustification = currentVote.decision !== 'manter';
+                            const isJustificationMissing = needsJustification && (!currentVote.justification || !currentVote.justification.trim());
+
+                            return (
+                              <div 
+                                key={obj.id}
+                                id={`card-${obj.code}`}
+                                className={`bg-white rounded-2xl border transition-all ${
+                                  isJustificationMissing && validationErrorMsg
+                                    ? 'border-rose-500 ring-2 ring-rose-300'
+                                    : obj.isFinalDraft 
+                                      ? 'border-emerald-200/90 shadow-sm' 
+                                      : 'border-slate-200 shadow-sm'
                                 }`}
                               >
-                                <input
-                                  type="radio"
-                                  name={`vote-${obj.id}`}
-                                  value="manter"
-                                  checked={currentVote.decision === 'manter'}
-                                  onChange={() => handleDecisionChange(obj.id, 'manter')}
-                                  className="w-4 h-4 text-emerald-600"
-                                />
-                                <IconCheckCircle />
-                                <span>Manter</span>
-                              </label>
-
-                              {/* Alterar Redação */}
-                              <label
-                                className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
-                                  currentVote.decision === 'alterar'
-                                    ? 'bg-amber-50 border-amber-500 text-amber-900 ring-2 ring-amber-400/20 shadow-sm'
-                                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                                }`}
-                              >
-                                <input
-                                  type="radio"
-                                  name={`vote-${obj.id}`}
-                                  value="alterar"
-                                  checked={currentVote.decision === 'alterar'}
-                                  onChange={() => handleDecisionChange(obj.id, 'alterar')}
-                                  className="w-4 h-4 text-amber-600"
-                                />
-                                <IconEdit />
-                                <span>Alterar Redação</span>
-                              </label>
-
-                              {/* Agrupar */}
-                              <label
-                                className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
-                                  currentVote.decision === 'agrupar'
-                                    ? 'bg-indigo-50 border-indigo-500 text-indigo-900 ring-2 ring-indigo-400/20 shadow-sm'
-                                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                                }`}
-                              >
-                                <input
-                                  type="radio"
-                                  name={`vote-${obj.id}`}
-                                  value="agrupar"
-                                  checked={currentVote.decision === 'agrupar'}
-                                  onChange={() => handleDecisionChange(obj.id, 'agrupar')}
-                                  className="w-4 h-4 text-indigo-600"
-                                />
-                                <IconLayers />
-                                <span>Agrupar</span>
-                              </label>
-
-                              {/* Excluir */}
-                              <label
-                                className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
-                                  currentVote.decision === 'excluir'
-                                    ? 'bg-rose-50 border-rose-500 text-rose-900 ring-2 ring-rose-400/20 shadow-sm'
-                                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                                }`}
-                              >
-                                <input
-                                  type="radio"
-                                  name={`vote-${obj.id}`}
-                                  value="excluir"
-                                  checked={currentVote.decision === 'excluir'}
-                                  onChange={() => handleDecisionChange(obj.id, 'excluir')}
-                                  className="w-4 h-4 text-rose-600"
-                                />
-                                <IconTrash />
-                                <span>Excluir</span>
-                              </label>
-
-                            </div>
-                          </div>
-
-                          {/* Seletor de Agrupamento Interativo */}
-                          {}
-                          {currentVote.decision === 'agrupar' && (
-                            <div className="bg-indigo-50/80 border border-indigo-200 rounded-xl p-4 space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-1">
-                                  <IconLayers />
-                                  Assinalar com qual ou quais outros objetivos agrupar:
-                                </span>
-                                <span className="text-[10px] text-indigo-700 bg-indigo-100 font-bold px-2 py-0.5 rounded">
-                                  Sincronização Automática
-                                </span>
-                              </div>
-                              <p className="text-xs text-indigo-800">
-                                Ao selecionar outro objetivo, ele também ficará marcado como "Agrupar" com o item {obj.code} e compartilhará o mesmo texto sugerido.
-                              </p>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1 max-h-52 overflow-y-auto custom-scrollbar">
-                                {INITIAL_OBJECTIVES.filter(o => o.id !== obj.id).map(targetObj => {
-                                  const isSelected = (currentVote.groupedWith || []).includes(targetObj.id);
-                                  return (
-                                    <button
-                                      type="button"
-                                      key={targetObj.id}
-                                      onClick={() => handleToggleGroup(obj.id, targetObj.id)}
-                                      className={`flex items-start gap-2 p-2.5 rounded-lg text-left text-xs transition-all border ${
-                                        isSelected
-                                          ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm font-semibold'
-                                          : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
-                                      }`}
-                                    >
-                                      <span className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 text-[10px] ${
-                                        isSelected ? 'bg-white text-indigo-700 font-bold' : 'border border-slate-300 bg-slate-50'
-                                      }`}>
-                                        {isSelected ? '✓' : ''}
+                                {/* Header do Card */}
+                                <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/60 rounded-t-2xl flex flex-col md:flex-row md:items-center justify-between gap-2">
+                                  <div>
+                                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                                      <span className="px-2.5 py-0.5 rounded text-xs font-mono font-bold bg-slate-900 text-white">
+                                        Item {obj.code}
                                       </span>
-                                      <div>
-                                        <span className="font-mono font-bold">[{targetObj.code}]</span> {targetObj.title}
+                                      <span className="text-xs font-bold px-2.5 py-0.5 rounded bg-slate-200 text-slate-700">
+                                        {obj.category}
+                                      </span>
+                                      {obj.isFinalDraft ? (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                          <IconCheckCircle />
+                                          REDAÇÃO FINAL CONSOLIDADA PELO GT
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                                          <IconEdit />
+                                          EM DISCUSSÃO / REFINAMENTO
+                                        </span>
+                                      )}
+                                    </div>
+                                    <h3 className="text-base font-bold text-slate-900">
+                                      {obj.title}
+                                    </h3>
+                                  </div>
+                                </div>
+
+                                {/* Texto do Objetivo sem aspas no início */}
+                                <div className="px-4 sm:px-5 py-3.5 bg-slate-50/30">
+                                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                                    Texto em Pauta:
+                                  </div>
+                                  <p className="text-sm text-slate-800 leading-relaxed font-normal bg-white p-3.5 rounded-xl border border-slate-200 shadow-inner">
+                                    {obj.description}
+                                  </p>
+                                </div>
+
+                                {/* Opções de Decisão */}
+                                <div className="p-4 sm:p-5 space-y-4">
+                                  <div>
+                                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                                      Sua Decisão:
+                                    </label>
+                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                      
+                                      {/* Manter */}
+                                      <label
+                                        className={`flex items-center gap-1.5 p-2.5 sm:p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                                          currentVote.decision === 'manter'
+                                            ? 'bg-emerald-50 border-emerald-500 text-emerald-900 ring-2 ring-emerald-400/20 shadow-sm'
+                                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        <input
+                                          type="radio"
+                                          name={`vote-${obj.id}`}
+                                          value="manter"
+                                          checked={currentVote.decision === 'manter'}
+                                          onChange={() => handleDecisionChange(obj.id, 'manter')}
+                                          className="w-3.5 h-3.5 text-emerald-600"
+                                        />
+                                        <IconCheckCircle />
+                                        <span>Manter</span>
+                                      </label>
+
+                                      {/* Alterar Redação */}
+                                      <label
+                                        className={`flex items-center gap-1.5 p-2.5 sm:p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                                          currentVote.decision === 'alterar'
+                                            ? 'bg-amber-50 border-amber-500 text-amber-900 ring-2 ring-amber-400/20 shadow-sm'
+                                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        <input
+                                          type="radio"
+                                          name={`vote-${obj.id}`}
+                                          value="alterar"
+                                          checked={currentVote.decision === 'alterar'}
+                                          onChange={() => handleDecisionChange(obj.id, 'alterar')}
+                                          className="w-3.5 h-3.5 text-amber-600"
+                                        />
+                                        <IconEdit />
+                                        <span>Alterar Redação</span>
+                                      </label>
+
+                                      {/* Dividir (Desmembrar) */}
+                                      <label
+                                        className={`flex items-center gap-1.5 p-2.5 sm:p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                                          currentVote.decision === 'dividir'
+                                            ? 'bg-purple-50 border-purple-500 text-purple-900 ring-2 ring-purple-400/20 shadow-sm'
+                                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        <input
+                                          type="radio"
+                                          name={`vote-${obj.id}`}
+                                          value="dividir"
+                                          checked={currentVote.decision === 'dividir'}
+                                          onChange={() => handleDecisionChange(obj.id, 'dividir')}
+                                          className="w-3.5 h-3.5 text-purple-600"
+                                        />
+                                        <IconSplit />
+                                        <span>Dividir em 2 ou +</span>
+                                      </label>
+
+                                      {/* Agrupar */}
+                                      <label
+                                        className={`flex items-center gap-1.5 p-2.5 sm:p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                                          currentVote.decision === 'agrupar'
+                                            ? 'bg-indigo-50 border-indigo-500 text-indigo-900 ring-2 ring-indigo-400/20 shadow-sm'
+                                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        <input
+                                          type="radio"
+                                          name={`vote-${obj.id}`}
+                                          value="agrupar"
+                                          checked={currentVote.decision === 'agrupar'}
+                                          onChange={() => handleDecisionChange(obj.id, 'agrupar')}
+                                          className="w-3.5 h-3.5 text-indigo-600"
+                                        />
+                                        <IconLayers />
+                                        <span>Agrupar</span>
+                                      </label>
+
+                                      {/* Excluir */}
+                                      <label
+                                        className={`flex items-center gap-1.5 p-2.5 sm:p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                                          currentVote.decision === 'excluir'
+                                            ? 'bg-rose-50 border-rose-500 text-rose-900 ring-2 ring-rose-400/20 shadow-sm'
+                                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        <input
+                                          type="radio"
+                                          name={`vote-${obj.id}`}
+                                          value="excluir"
+                                          checked={currentVote.decision === 'excluir'}
+                                          onChange={() => handleDecisionChange(obj.id, 'excluir')}
+                                          className="w-3.5 h-3.5 text-rose-600"
+                                        />
+                                        <IconTrash />
+                                        <span>Excluir</span>
+                                      </label>
+
+                                    </div>
+                                  </div>
+
+                                  {/* Opção Dividir: Campos para os novos sub-objetivos */}
+                                  {currentVote.decision === 'dividir' && (
+                                    <div className="bg-purple-50/80 border border-purple-200 rounded-xl p-4 space-y-3">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs font-bold text-purple-900 uppercase tracking-wider flex items-center gap-1">
+                                          <IconSplit />
+                                          Dividir em dois ou mais novos objetivos:
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAddSplitField(obj.id)}
+                                          className="text-xs px-2.5 py-1 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 transition-all flex items-center gap-1"
+                                        >
+                                          <IconPlus /> Adicionar Mais Uma Parte
+                                        </button>
                                       </div>
-                                    </button>
-                                  );
-                                })}
+                                      <p className="text-xs text-purple-800">
+                                        Especifique abaixo como este objetivo [{obj.code}] deve ser separado:
+                                      </p>
+
+                                      <div className="space-y-2">
+                                        {(currentVote.splitProposals || ['', '']).map((splitText, sIdx) => (
+                                          <div key={sIdx} className="flex items-start gap-2">
+                                            <span className="text-xs font-bold bg-purple-200 text-purple-900 px-2 py-1.5 rounded-lg font-mono">
+                                              Parte {sIdx + 1}
+                                            </span>
+                                            <textarea
+                                              rows={2}
+                                              value={splitText}
+                                              onChange={(e) => handleSplitTextChange(obj.id, sIdx, e.target.value)}
+                                              placeholder={`Escreva o texto da Parte ${sIdx + 1}...`}
+                                              className="w-full px-3 py-1.5 rounded-lg border border-purple-300 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                            />
+                                            {(currentVote.splitProposals || []).length > 2 && (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleRemoveSplitField(obj.id, sIdx)}
+                                                className="text-rose-600 text-xs font-bold hover:underline p-1"
+                                              >
+                                                ✕
+                                              </button>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Seletor de Agrupamento */}
+                                  {currentVote.decision === 'agrupar' && (
+                                    <div className="bg-indigo-50/80 border border-indigo-200 rounded-xl p-4 space-y-3">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-1">
+                                          <IconLayers />
+                                          Assinalar com qual ou quais outros objetivos agrupar:
+                                        </span>
+                                        <span className="text-[10px] text-indigo-700 bg-indigo-100 font-bold px-2 py-0.5 rounded">
+                                          Sincronização Automática
+                                        </span>
+                                      </div>
+
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1 max-h-52 overflow-y-auto custom-scrollbar">
+                                        {INITIAL_OBJECTIVES.filter(o => o.id !== obj.id).map(targetObj => {
+                                          const isSelected = (currentVote.groupedWith || []).includes(targetObj.id);
+                                          return (
+                                            <button
+                                              type="button"
+                                              key={targetObj.id}
+                                              onClick={() => handleToggleGroup(obj.id, targetObj.id)}
+                                              className={`flex items-start gap-2 p-2.5 rounded-lg text-left text-xs transition-all border ${
+                                                isSelected
+                                                  ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm font-semibold'
+                                                  : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+                                              }`}
+                                            >
+                                              <span className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 text-[10px] ${
+                                                isSelected ? 'bg-white text-indigo-700 font-bold' : 'border border-slate-300 bg-slate-50'
+                                              }`}>
+                                                {isSelected ? '✓' : ''}
+                                              </span>
+                                              <div>
+                                                <span className="font-mono font-bold">[{targetObj.code}]</span> {targetObj.title}
+                                              </div>
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Campo de Sugestão de Nova Redação */}
+                                  {(currentVote.decision === 'alterar' || currentVote.decision === 'agrupar') && (
+                                    <div className="space-y-1.5">
+                                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                        {currentVote.decision === 'agrupar' 
+                                          ? "Sugestão de Redação Unificada para o Grupo de Objetivos:" 
+                                          : "Sugestão de Nova Redação:"}
+                                      </label>
+                                      <textarea
+                                        rows={3}
+                                        value={currentVote.newText || ""}
+                                        onChange={(e) => handleNewTextChange(obj.id, e.target.value)}
+                                        placeholder="Escreva aqui a nova proposta de texto..."
+                                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white"
+                                      />
+                                    </div>
+                                  )}
+
+                                  {/* Campo de Justificativa OBRIGATÓRIA se não for 'manter' */}
+                                  <div className="space-y-1">
+                                    <label className="block text-xs font-bold uppercase tracking-wider flex items-center justify-between">
+                                      <span className={needsJustification ? "text-rose-700" : "text-slate-600"}>
+                                        Justificativa e Comentários {needsJustification ? "(OBRIGATÓRIO * )" : "(Opcional)"}:
+                                      </span>
+                                      {needsJustification && (
+                                        <span className="text-[10px] font-extrabold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                                          Obrigatório para {currentVote.decision}
+                                        </span>
+                                      )}
+                                    </label>
+                                    <input
+                                      type="text"
+                                      required={needsJustification}
+                                      value={currentVote.justification || ""}
+                                      onChange={(e) => handleJustificationChange(obj.id, e.target.value)}
+                                      placeholder={
+                                        needsJustification 
+                                          ? "Explique o motivo desta escolha (obrigatório)..." 
+                                          : "Ex: Adequação com a meta municipal / Clareza de redação..."
+                                      }
+                                      className={`w-full px-3.5 py-2 rounded-xl border focus:outline-none focus:ring-2 text-xs transition-all ${
+                                        isJustificationMissing && validationErrorMsg
+                                          ? 'border-rose-500 bg-rose-50/50 focus:ring-rose-400'
+                                          : 'border-slate-300 bg-slate-50 focus:bg-white focus:ring-slate-400'
+                                      }`}
+                                    />
+                                  </div>
+
+                                </div>
                               </div>
-                            </div>
-                          )}
+                            );
+                          })}
+                        </div>
 
-                          {/* Campo de Sugestão de Nova Redação */}
-                          {(currentVote.decision === 'alterar' || currentVote.decision === 'agrupar') && (
-                            <div className="space-y-1.5">
-                              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                                {currentVote.decision === 'agrupar' 
-                                  ? "Sugestão de Redação Unificada para o Grupo de Objetivos:" 
-                                  : "Sugestão de Nova Redação:"}
-                              </label>
-                              <textarea
-                                rows={3}
-                                value={currentVote.newText || ""}
-                                onChange={(e) => handleNewTextChange(obj.id, e.target.value)}
-                                placeholder="Escreva aqui a nova proposta de texto..."
-                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white"
-                              />
+                        {/* Botão de Adicionar Novo Objetivo ESPECÍFICO DESTE EIXO */}
+                        <div className="bg-white rounded-2xl p-4 border border-dashed border-emerald-300 hover:border-emerald-500 transition-all text-center space-y-3">
+                          <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
+                            <div className="text-left">
+                              <span className="text-xs font-bold text-emerald-900 block">
+                                Propor Novo Objetivo no Eixo "{axisName}"
+                              </span>
+                              <span className="text-[11px] text-slate-500">
+                                Sentiu falta de alguma pauta neste eixo? Clique para adicionar uma nova proposta.
+                              </span>
                             </div>
-                          )}
-
-                          {/* Campo Universal de Justificativa e Comentários */}
-                          <div className="space-y-1">
-                            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
-                              Justificativa e Comentários (Opcional):
-                            </label>
-                            <input
-                              type="text"
-                              value={currentVote.justification || ""}
-                              onChange={(e) => handleJustificationChange(obj.id, e.target.value)}
-                              placeholder="Ex: Adequação com a meta municipal / Clareza de redação..."
-                              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 text-xs bg-slate-50 focus:bg-white"
-                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAddCustomProposalByAxis(axisName)}
+                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-sm shrink-0"
+                            >
+                              <IconPlus /> Adicionar Novo Objetivo neste Eixo
+                            </button>
                           </div>
 
+                          {/* Renderização das propostas deste Eixo */}
+                          {axisProposals.length > 0 && (
+                            <div className="space-y-3 pt-2 text-left">
+                              {axisProposals.map((prop, pIndex) => (
+                                <div key={prop.id} className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-200 space-y-2 relative">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveCustomProposal(prop.id)}
+                                    className="absolute top-3 right-3 text-slate-400 hover:text-rose-600 font-bold text-xs"
+                                  >
+                                    ✕ Remover
+                                  </button>
+                                  
+                                  <div className="text-xs font-bold text-emerald-900 uppercase">
+                                    Nova Proposta #{pIndex + 1} no Eixo {axisName}:
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-slate-600 mb-0.5">Título / Resumo:</label>
+                                    <input
+                                      type="text"
+                                      value={prop.title}
+                                      onChange={(e) => handleUpdateCustomProposal(prop.id, 'title', e.target.value)}
+                                      placeholder="Ex: Horta escolar sustentável nas UEs"
+                                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-slate-600 mb-0.5">Redação Proposta:</label>
+                                    <textarea
+                                      rows={2}
+                                      value={prop.text}
+                                      onChange={(e) => handleUpdateCustomProposal(prop.id, 'text', e.target.value)}
+                                      placeholder="Descreva detalhadamente o texto do novo objetivo..."
+                                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="block text-[11px] font-bold text-slate-600 mb-0.5">Justificativa:</label>
+                                    <input
+                                      type="text"
+                                      value={prop.justification}
+                                      onChange={(e) => handleUpdateCustomProposal(prop.id, 'justification', e.target.value)}
+                                      placeholder="Explique a relevância para este eixo..."
+                                      className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white"
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
+
                       </div>
                     );
                   })}
                 </div>
 
                 {/* Barra de Envio */}
-                {}
                 <div className="sticky bottom-4 z-20 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4 border border-slate-700">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center font-extrabold text-white">
@@ -890,29 +1224,24 @@
                     <div>
                       <div className="text-xs text-slate-400 font-semibold">Cédula de Voto</div>
                       <div className="text-sm font-bold">
-                        {participantName ? `Participante: ${participantName}` : "Preencha seu nome para registrar"}
+                        Votante: {participantName.trim() || "Anônimo"}
                       </div>
                     </div>
                   </div>
 
                   <button
                     type="submit"
-                    disabled={!participantName.trim() || isSyncing}
-                    className={`w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
-                      participantName.trim() && !isSyncing
-                        ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer shadow-lg'
-                        : 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                    }`}
+                    disabled={isSyncing}
+                    className="w-full sm:w-auto px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg cursor-pointer"
                   >
                     <IconSend />
-                    {isSyncing ? "Enviando..." : "Registrar e Consolidar Meu Voto"}
+                    {isSyncing ? "Enviando..." : "Registrar Meu Voto"}
                   </button>
                 </div>
 
               </form>
             )}
 
-            {/* ======================= ABA 2: PAINEL CONSOLIDADO ======================= */}
             {}
             {activeTab === "summary" && (
               <div className="space-y-6">
@@ -928,7 +1257,7 @@
                       Painel Consolidado de Deliberações
                     </h2>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Total de votos contabilizados: <strong className="text-slate-800">{submittedBallots.length}</strong> participante(s) / representações.
+                      Total de votos contabilizados: <strong className="text-slate-800">{submittedBallots.length}</strong> participante(s).
                     </p>
                   </div>
 
@@ -954,7 +1283,6 @@
                           : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                       }`}
                     >
-                      <IconDownload />
                       Baixar JSON
                     </button>
                   </div>
@@ -972,106 +1300,190 @@
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {statsByObjective.map((item) => {
-                      const total = item.totalCast || 1;
-                      const pManter = Math.round((item.counts.manter / total) * 100);
-                      const pAlterar = Math.round((item.counts.alterar / total) * 100);
-                      const pExcluir = Math.round((item.counts.excluir / total) * 100);
-                      const pAgrupar = Math.round((item.counts.agrupar / total) * 100);
+                  <>
+                    {/* Lista por Objetivo */}
+                    <div className="space-y-4">
+                      {statsByObjective.map((item) => {
+                        const total = item.totalCast || 1;
+                        const pManter = Math.round((item.counts.manter / total) * 100);
+                        const pAlterar = Math.round((item.counts.alterar / total) * 100);
+                        const pDividir = Math.round((item.counts.dividir / total) * 100);
+                        const pExcluir = Math.round((item.counts.excluir / total) * 100);
+                        const pAgrupar = Math.round((item.counts.agrupar / total) * 100);
 
-                      return (
-                        <div key={item.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
-                          
-                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-3 border-b border-slate-100">
-                            <div>
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-mono text-xs font-bold px-2 py-0.5 bg-slate-900 text-white rounded">
-                                  {item.code}
-                                </span>
-                                <span className="text-xs font-semibold text-slate-600">
-                                  {item.axis}
-                                </span>
-                                {item.isFinalDraft && (
-                                  <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
-                                    Redação Final Consolidada
+                        return (
+                          <div key={item.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+                            
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                              <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="font-mono text-xs font-bold px-2 py-0.5 bg-slate-900 text-white rounded">
+                                    {item.code}
                                   </span>
-                                )}
-                              </div>
-                              <h3 className="text-base font-bold text-slate-900">
-                                {item.title}
-                              </h3>
-                            </div>
-                          </div>
-
-                          <p className="text-xs text-slate-600 italic bg-slate-50 p-3 rounded-xl border border-slate-100">
-                            "{item.description}"
-                          </p>
-
-                          {/* Placar de Votação */}
-                          <div className="space-y-1.5">
-                            <div className="text-xs font-bold text-slate-700">Contagem dos Votos ({total} votante/s):</div>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                              <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-center">
-                                <div className="text-[11px] font-bold text-emerald-800">Manter</div>
-                                <div className="text-base font-extrabold text-emerald-900">{item.counts.manter} ({pManter}%)</div>
-                              </div>
-                              <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl text-center">
-                                <div className="text-[11px] font-bold text-amber-800">Alterar</div>
-                                <div className="text-base font-extrabold text-amber-900">{item.counts.alterar} ({pAlterar}%)</div>
-                              </div>
-                              <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl text-center">
-                                <div className="text-[11px] font-bold text-indigo-800">Agrupar</div>
-                                <div className="text-base font-extrabold text-indigo-900">{item.counts.agrupar} ({pAgrupar}%)</div>
-                              </div>
-                              <div className="bg-rose-50 border border-rose-200 p-2.5 rounded-xl text-center">
-                                <div className="text-[11px] font-bold text-rose-800">Excluir</div>
-                                <div className="text-base font-extrabold text-rose-900">{item.counts.excluir} ({pExcluir}%)</div>
+                                  <span className="text-xs font-semibold text-slate-600">
+                                    {item.axis}
+                                  </span>
+                                  {item.isFinalDraft && (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
+                                      Redação Final Consolidada
+                                    </span>
+                                  )}
+                                </div>
+                                <h3 className="text-base font-bold text-slate-900">
+                                  {item.title}
+                                </h3>
                               </div>
                             </div>
-                          </div>
 
-                          {/* Propostas de Redação Registradas */}
-                          {item.suggestions.length > 0 && (
-                            <div className="space-y-2 pt-2">
-                              <div className="text-xs font-bold text-slate-800 flex items-center gap-1">
-                                <IconEdit />
-                                Sugestões de Redação Recebidas ({item.suggestions.length}):
+                            <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                              {item.description}
+                            </p>
+
+                            {/* Placar de Votação */}
+                            <div className="space-y-1.5">
+                              <div className="text-xs font-bold text-slate-700">Contagem dos Votos ({total} votantes):</div>
+                              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-center">
+                                  <div className="text-[11px] font-bold text-emerald-800">Manter</div>
+                                  <div className="text-base font-extrabold text-emerald-900">{item.counts.manter} ({pManter}%)</div>
+                                </div>
+                                <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl text-center">
+                                  <div className="text-[11px] font-bold text-amber-800">Alterar</div>
+                                  <div className="text-base font-extrabold text-amber-900">{item.counts.alterar} ({pAlterar}%)</div>
+                                </div>
+                                <div className="bg-purple-50 border border-purple-200 p-2.5 rounded-xl text-center">
+                                  <div className="text-[11px] font-bold text-purple-800">Dividir</div>
+                                  <div className="text-base font-extrabold text-purple-900">{item.counts.dividir} ({pDividir}%)</div>
+                                </div>
+                                <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl text-center">
+                                  <div className="text-[11px] font-bold text-indigo-800">Agrupar</div>
+                                  <div className="text-base font-extrabold text-indigo-900">{item.counts.agrupar} ({pAgrupar}%)</div>
+                                </div>
+                                <div className="bg-rose-50 border border-rose-200 p-2.5 rounded-xl text-center">
+                                  <div className="text-[11px] font-bold text-rose-800">Excluir</div>
+                                  <div className="text-base font-extrabold text-rose-900">{item.counts.excluir} ({pExcluir}%)</div>
+                                </div>
                               </div>
-                              <div className="space-y-1.5">
-                                {item.suggestions.map((sug, idx) => (
-                                  <div key={idx} className="bg-amber-50/70 border border-amber-200 p-3 rounded-xl text-xs text-slate-800">
-                                    <div className="font-bold text-amber-900 mb-0.5 flex items-center justify-between">
-                                      <span>{sug.author}</span>
-                                      <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 bg-amber-200 rounded">
-                                        {sug.decision}
-                                      </span>
+                            </div>
+
+                            {/* Sugestões de Redação Registradas */}
+                            {item.suggestions.length > 0 && (
+                              <div className="space-y-2 pt-2">
+                                <div className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                                  <IconEdit />
+                                  Sugestões de Redação Recebidas ({item.suggestions.length}):
+                                </div>
+                                <div className="space-y-1.5">
+                                  {item.suggestions.map((sug, idx) => (
+                                    <div key={idx} className="bg-amber-50/70 border border-amber-200 p-3 rounded-xl text-xs text-slate-800">
+                                      <div className="font-bold text-amber-900 mb-0.5 flex items-center justify-between">
+                                        <span>{sug.author}</span>
+                                        <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 bg-amber-200 rounded">
+                                          {sug.decision}
+                                        </span>
+                                      </div>
+                                      <p className="text-slate-900 font-medium">{sug.text}</p>
                                     </div>
-                                    <p className="text-slate-900 font-medium">"{sug.text}"</p>
-                                  </div>
-                                ))}
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                          )}
+                            )}
 
-                          {/* Comentários */}
-                          {item.comments.length > 0 && (
-                            <div className="space-y-1.5 pt-1">
-                              <div className="text-xs font-bold text-slate-700">Comentários / Justificativas:</div>
-                              <div className="space-y-1">
-                                {item.comments.map((comm, idx) => (
-                                  <div key={idx} className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-xs text-slate-700">
-                                    <strong className="text-slate-900">{comm.author}:</strong> {comm.text}
-                                  </div>
-                                ))}
+                            {/* Propostas de Divisão Registradas */}
+                            {item.splitSuggestions.length > 0 && (
+                              <div className="space-y-2 pt-2">
+                                <div className="text-xs font-bold text-purple-900 flex items-center gap-1">
+                                  <IconSplit />
+                                  Propostas de Divisão deste Objetivo ({item.splitSuggestions.length}):
+                                </div>
+                                <div className="space-y-2">
+                                  {item.splitSuggestions.map((sp, idx) => (
+                                    <div key={idx} className="bg-purple-50/80 border border-purple-200 p-3 rounded-xl text-xs space-y-1">
+                                      <div className="font-bold text-purple-900">Por {sp.author}:</div>
+                                      <ol className="list-decimal list-inside space-y-1 pl-1">
+                                        {sp.splits.map((part, pIdx) => (
+                                          <li key={pIdx} className="text-slate-800 font-medium">{part}</li>
+                                        ))}
+                                      </ol>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                          )}
+                            )}
 
+                            {/* Comentários / Justificativas */}
+                            {item.comments.length > 0 && (
+                              <div className="space-y-1.5 pt-1">
+                                <div className="text-xs font-bold text-slate-700">Justificativas / Comentários Registrados:</div>
+                                <div className="space-y-1">
+                                  {item.comments.map((comm, idx) => (
+                                    <div key={idx} className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-xs text-slate-700">
+                                      <strong className="text-slate-900">{comm.author}</strong> <span className="text-[10px] font-bold bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded uppercase mr-1">({comm.decision})</span>: {comm.text}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Propostas de Novos Objetivos por Eixo */}
+                    {allCustomProposalsConsolidated.length > 0 && (
+                      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                          <IconPlus />
+                          Novos Objetivos Propostos nos Eixos ({allCustomProposalsConsolidated.length})
+                        </h3>
+                        <div className="space-y-2">
+                          {allCustomProposalsConsolidated.map((p, idx) => (
+                            <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+                              <div className="flex items-center justify-between font-bold">
+                                <span className="text-emerald-800">Eixo: {p.axis}</span>
+                                <span className="text-slate-500 font-normal">por {p.author}</span>
+                              </div>
+                              {p.title && <div className="font-semibold text-slate-900">Título: {p.title}</div>}
+                              <div className="text-slate-800">Proposta: {p.text}</div>
+                              {p.justification && <div className="text-slate-500 italic">Justificativa: {p.justification}</div>}
+                            </div>
+                          ))}
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    )}
+
+                    {/* Gestão e Exclusão de Votos de Teste */}
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-900">
+                            Cédulas Registradas / Votos de Teste ({submittedBallots.length})
+                          </h3>
+                          <p className="text-xs text-slate-500">
+                            Você pode excluir qualquer voto de teste enviado anteriormente.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden">
+                        {submittedBallots.map((ballot, idx) => (
+                          <div key={ballot.firebaseDocId || ballot.localId || idx} className="p-3 bg-slate-50/50 hover:bg-slate-50 flex items-center justify-between gap-3 text-xs">
+                            <div>
+                              <span className="font-bold text-slate-900">{ballot.voterName}</span>
+                              <span className="text-slate-400 ml-2">({ballot.submittedAt})</span>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteBallot(ballot)}
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold rounded-lg transition-all flex items-center gap-1"
+                            >
+                              <IconTrash /> Excluir Voto
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
                 )}
 
               </div>
