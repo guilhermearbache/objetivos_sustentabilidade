@@ -35,19 +35,12 @@
 
   <div id="root"></div>
 
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    window.firebaseApp = {
-      initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
-      getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, getDocs
-    };
-  </script>
-
   <script type="text/babel">
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useCallback } = React;
+
+    // Código da sala pública na nuvem para compartilhar os votos entre os 8 membros
+    const ROOM_ID = "gt_clima_rmesp_2026_shared_v3";
+    const CLOUD_API_ENDPOINT = `https://api.restful-api.dev/objects`;
 
     const INITIAL_OBJECTIVES = [
       // Eixo 1 & 2: Educação Ambiental e Conforto/Segurança (Redação Final Consolidada pelo GT)
@@ -88,7 +81,7 @@
         isFinalDraft: true,
       },
 
-      // Eixo 3: Mitigação e Sustentabilidade (Em Construção/Refinamento)
+      // Eixo 3: Mitigação e Sustentabilidade
       {
         id: "obj-3-1",
         code: "3.1",
@@ -126,7 +119,7 @@
         isFinalDraft: false,
       },
 
-      // Eixo 4: Gestão, Governança e Equidade (Em Construção/Refinamento)
+      // Eixo 4: Gestão, Governança e Equidade
       {
         id: "obj-4-1",
         code: "4.1",
@@ -217,8 +210,10 @@
       const [filterAxis, setFilterAxis] = useState("Todos");
       const [copiedStatus, setCopiedStatus] = useState(false);
       const [isSyncing, setIsSyncing] = useState(false);
+      const [cloudObjectId, setCloudObjectId] = useState(() => localStorage.getItem('gt_clima_cloud_obj_id') || "");
       const [validationErrorMsg, setValidationErrorMsg] = useState("");
-      const [roomCode, setRoomCode] = useState("gt-clima-2026");
+      const [importJsonInput, setImportJsonInput] = useState("");
+      const [showImportModal, setShowImportModal] = useState(false);
 
       // Estado para propostas de novos objetivos por Eixo
       const [customProposals, setCustomProposals] = useState([]);
@@ -238,87 +233,102 @@
         return initial;
       });
 
-      // Lista de todas as cédulas enviadas (agregadas da nuvem e do storage)
+      // Lista consolidada de votos trazida da nuvem/local
       const [submittedBallots, setSubmittedBallots] = useState(() => {
         try {
-          const saved = localStorage.getItem('gt_clima_ballots_' + roomCode);
+          const saved = localStorage.getItem('gt_clima_ballots_v3');
           return saved ? JSON.parse(saved) : [];
         } catch(e) {
           return [];
         }
       });
 
-      useEffect(() => {
-        let unsubscribe = null;
-        
-        const initCloudSync = async () => {
-          setIsSyncing(true);
-          try {
-            if (window.firebaseApp && window.firebaseApp.getFirestore) {
-              const { getFirestore, collection, onSnapshot, getAuth, signInAnonymously, signInWithCustomToken } = window.firebaseApp;
-              const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-rmesp-v2';
-              
-              let firebaseConfig = null;
-              if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
-                firebaseConfig = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
+      // Sincronização na nuvem via REST API (Zero setup necessário)
+      const fetchCloudData = useCallback(async () => {
+        setIsSyncing(true);
+        try {
+          // Se já temos um ObjectId criado na nuvem, buscar
+          let currentObjId = cloudObjectId || localStorage.getItem('gt_clima_cloud_obj_id');
+          
+          if (currentObjId) {
+            const res = await fetch(`${CLOUD_API_ENDPOINT}/${currentObjId}`);
+            if (res.ok) {
+              const cloudObj = await res.json();
+              if (cloudObj && cloudObj.data && Array.isArray(cloudObj.data.ballots)) {
+                setSubmittedBallots(cloudObj.data.ballots);
+                localStorage.setItem('gt_clima_ballots_v3', JSON.stringify(cloudObj.data.ballots));
               }
-
-              // Configuração padrão pública de emergência/fallback caso não haja variável global
-              if (!firebaseConfig) {
-                firebaseConfig = {
-                  apiKey: "AIzaSyDemoKeyGTClima2026RMESP",
-                  authDomain: "gt-clima-rmesp.firebaseapp.com",
-                  projectId: "gt-clima-rmesp",
-                  storageBucket: "gt-clima-rmesp.appspot.com",
-                  messagingSenderId: "1029384756",
-                  appId: "1:1029384756:web:gtclima2026"
-                };
-              }
-
-              const app = window.firebaseApp.initializeApp(firebaseConfig);
-              const db = getFirestore(app);
-              const auth = getAuth(app);
-
-              const setupListener = () => {
-                const votesRef = collection(db, 'artifacts', appId, 'public', 'data', 'votes_' + roomCode);
-                unsubscribe = onSnapshot(votesRef, (snapshot) => {
-                  const cloudBallots = [];
-                  snapshot.forEach((docSnapshot) => {
-                    cloudBallots.push({ firebaseDocId: docSnapshot.id, ...docSnapshot.data() });
-                  });
-                  setSubmittedBallots(cloudBallots);
-                  try {
-                    localStorage.setItem('gt_clima_ballots_' + roomCode, JSON.stringify(cloudBallots));
-                  } catch(e) {}
-                  setIsSyncing(false);
-                }, (error) => {
-                  console.warn("Modo local ou sem credencial de gravação no Firebase:", error);
-                  setIsSyncing(false);
-                });
-              };
-
-              if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
-                signInWithCustomToken(auth, window.__initial_auth_token)
-                  .then(setupListener)
-                  .catch(() => signInAnonymously(auth).then(setupListener).catch(setupListener));
-              } else {
-                signInAnonymously(auth).then(setupListener).catch(setupListener);
-              }
-            } else {
-              setIsSyncing(false);
             }
-          } catch(err) {
-            console.log("Executando com suporte a sincronização local/JSON.", err);
-            setIsSyncing(false);
+          } else {
+            // Tentar localizar objeto da sala existente
+            const searchRes = await fetch(`${CLOUD_API_ENDPOINT}`);
+            if (searchRes.ok) {
+              const allObjs = await searchRes.json();
+              const found = Array.isArray(allObjs) ? allObjs.find(o => o.name === ROOM_ID) : null;
+              if (found) {
+                setCloudObjectId(found.id);
+                localStorage.setItem('gt_clima_cloud_obj_id', found.id);
+                if (found.data && Array.isArray(found.data.ballots)) {
+                  setSubmittedBallots(found.data.ballots);
+                  localStorage.setItem('gt_clima_ballots_v3', JSON.stringify(found.data.ballots));
+                }
+              }
+            }
           }
-        };
+        } catch (err) {
+          console.warn("Aviso na busca de nuvem:", err);
+        } finally {
+          setIsSyncing(false);
+        }
+      }, [cloudObjectId]);
 
-        initCloudSync();
+      // Polling automático a cada 6 segundos para consolidar votos dos 8 membros
+      useEffect(() => {
+        fetchCloudData();
+        const interval = setInterval(fetchCloudData, 6000);
+        return () => clearInterval(interval);
+      }, [fetchCloudData]);
 
-        return () => {
-          if (unsubscribe) unsubscribe();
-        };
-      }, [roomCode]);
+      // Salvar na nuvem após nova inserção ou exclusão
+      const saveToCloud = async (newBallotsList) => {
+        setIsSyncing(true);
+        try {
+          let currentObjId = cloudObjectId || localStorage.getItem('gt_clima_cloud_obj_id');
+          
+          if (currentObjId) {
+            // Atualizar existente
+            await fetch(`${CLOUD_API_ENDPOINT}/${currentObjId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: ROOM_ID,
+                data: { ballots: newBallotsList, lastUpdated: new Date().toISOString() }
+              })
+            });
+          } else {
+            // Criar novo registro na nuvem
+            const createRes = await fetch(CLOUD_API_ENDPOINT, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: ROOM_ID,
+                data: { ballots: newBallotsList, lastUpdated: new Date().toISOString() }
+              })
+            });
+            if (createRes.ok) {
+              const createdData = await createRes.json();
+              if (createdData && createdData.id) {
+                setCloudObjectId(createdData.id);
+                localStorage.setItem('gt_clima_cloud_obj_id', createdData.id);
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Erro ao salvar na nuvem:", err);
+        } finally {
+          setIsSyncing(false);
+        }
+      };
 
       const axes = useMemo(() => {
         return ["Todos", ...Array.from(new Set(INITIAL_OBJECTIVES.map(o => o.axis)))];
@@ -489,42 +499,23 @@
           return;
         }
 
-        setIsSyncing(true);
-
         const newBallot = {
-          localId: 'ballot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+          id: 'ballot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
           voterName: participantName.trim() || "Anônimo",
           submittedAt: new Date().toLocaleString('pt-BR'),
           votes: JSON.parse(JSON.stringify(votes)),
           customProposals: JSON.parse(JSON.stringify(customProposals))
         };
 
-        const updatedLocal = [newBallot, ...submittedBallots];
-        setSubmittedBallots(updatedLocal);
+        const updatedList = [newBallot, ...submittedBallots];
+        setSubmittedBallots(updatedList);
         try {
-          localStorage.setItem('gt_clima_ballots_' + roomCode, JSON.stringify(updatedLocal));
-        } catch(e) {}
+          localStorage.setItem('gt_clima_ballots_v3', JSON.stringify(updatedList));
+        } catch(err) {}
 
-        // Envio para o Banco de Dados Firestore na Nuvem
-        if (window.firebaseApp && window.firebaseApp.getFirestore) {
-          try {
-            const { getFirestore, collection, addDoc } = window.firebaseApp;
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-rmesp-v2';
-            let firebaseConfig = null;
-            if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
-              firebaseConfig = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
-            }
-            if (firebaseConfig) {
-              const app = window.firebaseApp.initializeApp(firebaseConfig);
-              const db = getFirestore(app);
-              await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'votes_' + roomCode), newBallot);
-            }
-          } catch(err) {
-            console.log("Voto salvo localmente no navegador.", err);
-          }
-        }
+        // Enviar para a Nuvem Compartilhada
+        await saveToCloud(updatedList);
 
-        setIsSyncing(false);
         setActiveTab("summary");
       };
 
@@ -533,33 +524,47 @@
           return;
         }
 
-        if (ballotToDelete.firebaseDocId && window.firebaseApp && window.firebaseApp.getFirestore) {
-          try {
-            const { getFirestore, doc, deleteDoc } = window.firebaseApp;
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-rmesp-v2';
-            let firebaseConfig = null;
-            if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
-              firebaseConfig = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
-            }
-            if (firebaseConfig) {
-              const app = window.firebaseApp.initializeApp(firebaseConfig);
-              const db = getFirestore(app);
-              await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'votes_' + roomCode, ballotToDelete.firebaseDocId));
-            }
-          } catch(e) {
-            console.log("Erro ao remover do banco na nuvem.", e);
-          }
-        }
-
-        const filtered = submittedBallots.filter(b => 
-          (b.firebaseDocId && b.firebaseDocId !== ballotToDelete.firebaseDocId) ||
-          (b.localId && b.localId !== ballotToDelete.localId) ||
-          (b.submittedAt !== ballotToDelete.submittedAt)
-        );
+        const filtered = submittedBallots.filter(b => b.id !== ballotToDelete.id);
         setSubmittedBallots(filtered);
         try {
-          localStorage.setItem('gt_clima_ballots_' + roomCode, JSON.stringify(filtered));
+          localStorage.setItem('gt_clima_ballots_v3', JSON.stringify(filtered));
         } catch(e) {}
+
+        await saveToCloud(filtered);
+      };
+
+      const handleImportJsonSubmit = async () => {
+        if (!importJsonInput.trim()) return;
+        try {
+          const parsed = JSON.parse(importJsonInput);
+          let newItems = [];
+          if (Array.isArray(parsed)) {
+            newItems = parsed;
+          } else if (parsed.individualBallots && Array.isArray(parsed.individualBallots)) {
+            newItems = parsed.individualBallots;
+          } else if (parsed.id && parsed.voterName) {
+            newItems = [parsed];
+          }
+
+          if (newItems.length > 0) {
+            const merged = [...submittedBallots];
+            newItems.forEach(item => {
+              if (!merged.some(m => m.id === item.id)) {
+                merged.unshift(item);
+              }
+            });
+            setSubmittedBallots(merged);
+            localStorage.setItem('gt_clima_ballots_v3', JSON.stringify(merged));
+            await saveToCloud(merged);
+            alert(`Sucesso! ${newItems.length} voto(s) importado(s) e sincronizados.`);
+            setShowImportModal(false);
+            setImportJsonInput("");
+          } else {
+            alert("Formato JSON inválido ou sem cédulas válidas.");
+          }
+        } catch (e) {
+          alert("Erro ao ler o código/JSON fornecido. Verifique o texto colado.");
+        }
       };
 
       const handleNewBallot = () => {
@@ -637,7 +642,7 @@
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
         const downloadAnchor = document.createElement('a');
         downloadAnchor.setAttribute("href", dataStr);
-        downloadAnchor.setAttribute("download", `consolidado-votacao-gt-clima-${new Date().toISOString().slice(0, 10)}.json`);
+        downloadAnchor.setAttribute("download", `consolidado-gt-clima-${new Date().toISOString().slice(0, 10)}.json`);
         document.body.appendChild(downloadAnchor);
         downloadAnchor.click();
         downloadAnchor.remove();
@@ -645,7 +650,7 @@
 
       const handleCopySummary = () => {
         let summaryText = `RELATÓRIO CONSOLIDADO DE VOTAÇÃO - GT CLIMA E SUSTENTABILIDADE\n`;
-        summaryText += `Total de Cédulas Contabilizadas na Nuvem: ${submittedBallots.length}\n`;
+        summaryText += `Total de Votos na Nuvem: ${submittedBallots.length}\n`;
         summaryText += `Data do Relatório: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
 
         statsByObjective.forEach(obj => {
@@ -723,11 +728,16 @@
 
               {/* Seletor de Abas + Status Sincronização */}
               <div className="flex items-center gap-2">
-                {isSyncing && (
-                  <span className="text-xs bg-emerald-950 text-emerald-200 px-2.5 py-1 rounded-lg border border-emerald-700 flex items-center gap-1 font-semibold">
-                    <IconRefresh /> Sincronizando...
-                  </span>
-                )}
+                <button
+                  type="button"
+                  onClick={fetchCloudData}
+                  title="Clique para sincronizar com a nuvem"
+                  className="text-xs bg-emerald-950 text-emerald-200 hover:bg-emerald-900 px-3 py-1.5 rounded-xl border border-emerald-700 flex items-center gap-1.5 font-semibold transition-all"
+                >
+                  <IconRefresh />
+                  {isSyncing ? "Atualizando..." : "Sincronizar"}
+                </button>
+
                 <div className="flex bg-emerald-950/60 p-1 rounded-xl border border-emerald-700/50">
                   <button
                     onClick={() => setActiveTab("vote")}
@@ -765,7 +775,7 @@
               <div className="flex items-center gap-2">
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
                 <span>
-                  <strong>Sincronização em Nuvem Ativa:</strong> Todos os votos enviados pelos 8 membros do GT acumulam automaticamente no mesmo painel.
+                  <strong>Sincronização Ativa na Sala Compartilhada:</strong> Votos gravados acumulados automaticamente em tempo real para todos os membros.
                 </span>
               </div>
               <span className="text-emerald-300 font-mono font-bold">11 Objetivos em Pauta</span>
@@ -775,11 +785,11 @@
           {/* Conteúdo Principal em Largura Expandida */}
           <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
             
-            {}
+            {/* ABA 1: CÉDULA DE VOTAÇÃO */}
             {activeTab === "vote" && (
               <form onSubmit={handleSubmitVote} className="space-y-6">
                 
-                {/* Texto Explicativo de Abertura */}
+                {/* Texto Explicativo de Abertura Solicitado */}
                 <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-sm border border-emerald-200/80 bg-gradient-to-br from-emerald-50/40 via-white to-slate-50 text-slate-800 space-y-3 leading-relaxed text-xs sm:text-sm">
                   <div className="flex items-center gap-2 font-bold text-emerald-800 uppercase tracking-wider text-xs mb-1">
                     <span className="text-base">📌</span> Orientações e Contexto
@@ -822,7 +832,7 @@
 
                 {/* Banner de Erro de Validação de Justificativa */}
                 {validationErrorMsg && (
-                  <div className="bg-rose-50 border-2 border-rose-400 text-rose-900 p-4 rounded-2xl flex items-start gap-3 shadow-md animate-bounce">
+                  <div className="bg-rose-50 border-2 border-rose-400 text-rose-900 p-4 rounded-2xl flex items-start gap-3 shadow-md">
                     <span className="text-xl">⚠️</span>
                     <div className="text-xs sm:text-sm font-bold">
                       {validationErrorMsg}
@@ -925,7 +935,7 @@
                                   </div>
                                 </div>
 
-                                {/* Texto do Objetivo limpo sem aspas */}
+                                {/* Texto do Objetivo sem aspas */}
                                 <div className="px-4 sm:px-5 py-3.5 bg-slate-50/30">
                                   <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
                                     Texto em Pauta:
@@ -1296,7 +1306,7 @@
               </form>
             )}
 
-            {}
+            {/* ABA 2: PAINEL CONSOLIDADO */}
             {activeTab === "summary" && (
               <div className="space-y-6">
                 
@@ -1321,6 +1331,12 @@
                       className="px-3.5 py-2 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 rounded-xl text-xs font-bold transition-all"
                     >
                       + Novo Voto
+                    </button>
+                    <button
+                      onClick={() => setShowImportModal(true)}
+                      className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-xl text-xs font-bold transition-all"
+                    >
+                      📥 Importar Voto (JSON)
                     </button>
                     <button
                       onClick={handleCopySummary}
@@ -1522,7 +1538,7 @@
 
                       <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden">
                         {submittedBallots.map((ballot, idx) => (
-                          <div key={ballot.firebaseDocId || ballot.localId || idx} className="p-3 bg-slate-50/50 hover:bg-slate-50 flex items-center justify-between gap-3 text-xs">
+                          <div key={ballot.id || idx} className="p-3 bg-slate-50/50 hover:bg-slate-50 flex items-center justify-between gap-3 text-xs">
                             <div>
                               <span className="font-bold text-slate-900">{ballot.voterName}</span>
                               <span className="text-slate-400 ml-2">({ballot.submittedAt})</span>
@@ -1538,6 +1554,47 @@
                       </div>
                     </div>
                   </>
+                )}
+
+                {/* Modal de Importação Manual em JSON */}
+                {showImportModal && (
+                  <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
+                      <div className="flex items-center justify-between border-b pb-3">
+                        <h3 className="text-base font-bold text-slate-900">Importar Voto em JSON</h3>
+                        <button
+                          onClick={() => setShowImportModal(false)}
+                          className="text-slate-400 hover:text-slate-600 font-bold"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-600">
+                        Cole abaixo o texto do JSON de um voto exportado por algum participante para adicioná-lo ao consolidado:
+                      </p>
+                      <textarea
+                        rows={6}
+                        value={importJsonInput}
+                        onChange={(e) => setImportJsonInput(e.target.value)}
+                        placeholder="Cole o código JSON aqui..."
+                        className="w-full p-3 border rounded-xl font-mono text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button
+                          onClick={() => setShowImportModal(false)}
+                          className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-bold text-xs hover:bg-slate-200"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={handleImportJsonSubmit}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 shadow"
+                        >
+                          Confirmar Importação
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )}
 
               </div>
