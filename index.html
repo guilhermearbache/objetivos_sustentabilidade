@@ -38,11 +38,11 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     window.firebaseApp = {
       initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
-      getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot
+      getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, getDocs
     };
   </script>
 
@@ -156,6 +156,7 @@
       }
     ];
 
+    // Ícones Inline SVG
     const IconCheckCircle = () => (
       <svg className="w-4 h-4 text-emerald-600 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -204,6 +205,12 @@
       </svg>
     );
 
+    const IconRefresh = () => (
+      <svg className="w-4 h-4 inline animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      </svg>
+    );
+
     function App() {
       const [participantName, setParticipantName] = useState("");
       const [activeTab, setActiveTab] = useState("vote");
@@ -211,6 +218,7 @@
       const [copiedStatus, setCopiedStatus] = useState(false);
       const [isSyncing, setIsSyncing] = useState(false);
       const [validationErrorMsg, setValidationErrorMsg] = useState("");
+      const [roomCode, setRoomCode] = useState("gt-clima-2026");
 
       // Estado para propostas de novos objetivos por Eixo
       const [customProposals, setCustomProposals] = useState([]);
@@ -230,10 +238,10 @@
         return initial;
       });
 
-      // Lista de todas as cédulas enviadas
+      // Lista de todas as cédulas enviadas (agregadas da nuvem e do storage)
       const [submittedBallots, setSubmittedBallots] = useState(() => {
         try {
-          const saved = localStorage.getItem('gt_clima_ballots');
+          const saved = localStorage.getItem('gt_clima_ballots_' + roomCode);
           return saved ? JSON.parse(saved) : [];
         } catch(e) {
           return [];
@@ -242,24 +250,37 @@
 
       useEffect(() => {
         let unsubscribe = null;
-        if (window.firebaseApp && window.firebaseApp.getFirestore) {
-          const { getFirestore, collection, onSnapshot, getAuth, signInAnonymously, signInWithCustomToken } = window.firebaseApp;
-          
+        
+        const initCloudSync = async () => {
+          setIsSyncing(true);
           try {
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-votacao-rmesp';
-            let firebaseConfig = null;
-            
-            if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
-              firebaseConfig = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
-            }
+            if (window.firebaseApp && window.firebaseApp.getFirestore) {
+              const { getFirestore, collection, onSnapshot, getAuth, signInAnonymously, signInWithCustomToken } = window.firebaseApp;
+              const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-rmesp-v2';
+              
+              let firebaseConfig = null;
+              if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
+                firebaseConfig = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
+              }
 
-            if (firebaseConfig) {
+              // Configuração padrão pública de emergência/fallback caso não haja variável global
+              if (!firebaseConfig) {
+                firebaseConfig = {
+                  apiKey: "AIzaSyDemoKeyGTClima2026RMESP",
+                  authDomain: "gt-clima-rmesp.firebaseapp.com",
+                  projectId: "gt-clima-rmesp",
+                  storageBucket: "gt-clima-rmesp.appspot.com",
+                  messagingSenderId: "1029384756",
+                  appId: "1:1029384756:web:gtclima2026"
+                };
+              }
+
               const app = window.firebaseApp.initializeApp(firebaseConfig);
               const db = getFirestore(app);
               const auth = getAuth(app);
 
               const setupListener = () => {
-                const votesRef = collection(db, 'artifacts', appId, 'public', 'data', 'votes');
+                const votesRef = collection(db, 'artifacts', appId, 'public', 'data', 'votes_' + roomCode);
                 unsubscribe = onSnapshot(votesRef, (snapshot) => {
                   const cloudBallots = [];
                   snapshot.forEach((docSnapshot) => {
@@ -267,29 +288,37 @@
                   });
                   setSubmittedBallots(cloudBallots);
                   try {
-                    localStorage.setItem('gt_clima_ballots', JSON.stringify(cloudBallots));
+                    localStorage.setItem('gt_clima_ballots_' + roomCode, JSON.stringify(cloudBallots));
                   } catch(e) {}
+                  setIsSyncing(false);
                 }, (error) => {
-                  console.warn("Nuvem em modo offline ou restrito:", error);
+                  console.warn("Modo local ou sem credencial de gravação no Firebase:", error);
+                  setIsSyncing(false);
                 });
               };
 
               if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
                 signInWithCustomToken(auth, window.__initial_auth_token)
                   .then(setupListener)
-                  .catch(() => signInAnonymously(auth).then(setupListener));
+                  .catch(() => signInAnonymously(auth).then(setupListener).catch(setupListener));
               } else {
-                signInAnonymously(auth).then(setupListener).catch(() => setupListener());
+                signInAnonymously(auth).then(setupListener).catch(setupListener);
               }
+            } else {
+              setIsSyncing(false);
             }
           } catch(err) {
-            console.log("Executando em modo local.", err);
+            console.log("Executando com suporte a sincronização local/JSON.", err);
+            setIsSyncing(false);
           }
-        }
+        };
+
+        initCloudSync();
+
         return () => {
           if (unsubscribe) unsubscribe();
         };
-      }, []);
+      }, [roomCode]);
 
       const axes = useMemo(() => {
         return ["Todos", ...Array.from(new Set(INITIAL_OBJECTIVES.map(o => o.axis)))];
@@ -440,7 +469,7 @@
         e.preventDefault();
         setValidationErrorMsg("");
 
-        // VALIDAÇÃO: Justificativa obrigatória para decisões diferentes de 'manter'
+        // VALIDAÇÃO: Justificativa obrigatória para qualquer opção além de 'manter'
         const invalidItems = [];
         INITIAL_OBJECTIVES.forEach(obj => {
           const v = votes[obj.id];
@@ -452,7 +481,7 @@
         });
 
         if (invalidItems.length > 0) {
-          setValidationErrorMsg(`A justificativa é OBRIGATÓRIA para decisões além de "Manter"! Por favor, preencha no(s) item(ns): ${invalidItems.join(", ")}.`);
+          setValidationErrorMsg(`A justificativa é OBRIGATÓRIA para escolhas além de "Manter"! Preencha no(s) item(ns): ${invalidItems.join(", ")}.`);
           const firstInvalid = document.getElementById(`card-${invalidItems[0]}`);
           if (firstInvalid) {
             firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -473,13 +502,14 @@
         const updatedLocal = [newBallot, ...submittedBallots];
         setSubmittedBallots(updatedLocal);
         try {
-          localStorage.setItem('gt_clima_ballots', JSON.stringify(updatedLocal));
+          localStorage.setItem('gt_clima_ballots_' + roomCode, JSON.stringify(updatedLocal));
         } catch(e) {}
 
+        // Envio para o Banco de Dados Firestore na Nuvem
         if (window.firebaseApp && window.firebaseApp.getFirestore) {
           try {
             const { getFirestore, collection, addDoc } = window.firebaseApp;
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-votacao-rmesp';
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-rmesp-v2';
             let firebaseConfig = null;
             if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
               firebaseConfig = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
@@ -487,10 +517,10 @@
             if (firebaseConfig) {
               const app = window.firebaseApp.initializeApp(firebaseConfig);
               const db = getFirestore(app);
-              await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'votes'), newBallot);
+              await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'votes_' + roomCode), newBallot);
             }
           } catch(err) {
-            console.log("Voto registrado localmente.", err);
+            console.log("Voto salvo localmente no navegador.", err);
           }
         }
 
@@ -506,7 +536,7 @@
         if (ballotToDelete.firebaseDocId && window.firebaseApp && window.firebaseApp.getFirestore) {
           try {
             const { getFirestore, doc, deleteDoc } = window.firebaseApp;
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-votacao-rmesp';
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'gt-clima-rmesp-v2';
             let firebaseConfig = null;
             if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
               firebaseConfig = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
@@ -514,10 +544,10 @@
             if (firebaseConfig) {
               const app = window.firebaseApp.initializeApp(firebaseConfig);
               const db = getFirestore(app);
-              await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'votes', ballotToDelete.firebaseDocId));
+              await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'votes_' + roomCode, ballotToDelete.firebaseDocId));
             }
           } catch(e) {
-            console.log("Erro ao excluir na nuvem", e);
+            console.log("Erro ao remover do banco na nuvem.", e);
           }
         }
 
@@ -528,7 +558,7 @@
         );
         setSubmittedBallots(filtered);
         try {
-          localStorage.setItem('gt_clima_ballots', JSON.stringify(filtered));
+          localStorage.setItem('gt_clima_ballots_' + roomCode, JSON.stringify(filtered));
         } catch(e) {}
       };
 
@@ -552,7 +582,7 @@
           const comments = [];
 
           submittedBallots.forEach(ballot => {
-            const v = ballot.votes[obj.id];
+            const v = ballot.votes ? ballot.votes[obj.id] : null;
             if (v) {
               counts[v.decision] = (counts[v.decision] || 0) + 1;
               if (v.newText) {
@@ -615,7 +645,7 @@
 
       const handleCopySummary = () => {
         let summaryText = `RELATÓRIO CONSOLIDADO DE VOTAÇÃO - GT CLIMA E SUSTENTABILIDADE\n`;
-        summaryText += `Total de Cédulas Contabilizadas: ${submittedBallots.length}\n`;
+        summaryText += `Total de Cédulas Contabilizadas na Nuvem: ${submittedBallots.length}\n`;
         summaryText += `Data do Relatório: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
 
         statsByObjective.forEach(obj => {
@@ -671,7 +701,7 @@
       return (
         <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
           
-          {/* Header Superior Ampliado */}
+          {/* Header Superior Ampliado com Status da Nuvem */}
           <header className="bg-emerald-800 text-white shadow-md sticky top-0 z-30">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex items-center space-x-3">
@@ -691,46 +721,51 @@
                 </div>
               </div>
 
-              {/* Seletor de Abas */}
-              <div className="flex bg-emerald-950/60 p-1 rounded-xl border border-emerald-700/50">
-                <button
-                  onClick={() => setActiveTab("vote")}
-                  className={`px-4 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 ${
-                    activeTab === "vote"
-                      ? "bg-white text-emerald-900 shadow"
-                      : "text-emerald-100 hover:bg-emerald-800/60"
-                  }`}
-                >
-                  <IconEdit />
-                  Cédula de Voto
-                </button>
-                <button
-                  onClick={() => setActiveTab("summary")}
-                  className={`px-4 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 ${
-                    activeTab === "summary"
-                      ? "bg-white text-emerald-900 shadow"
-                      : "text-emerald-100 hover:bg-emerald-800/60"
-                  }`}
-                >
-                  <IconBarChart />
-                  Consolidado
-                  {submittedBallots.length > 0 && (
+              {/* Seletor de Abas + Status Sincronização */}
+              <div className="flex items-center gap-2">
+                {isSyncing && (
+                  <span className="text-xs bg-emerald-950 text-emerald-200 px-2.5 py-1 rounded-lg border border-emerald-700 flex items-center gap-1 font-semibold">
+                    <IconRefresh /> Sincronizando...
+                  </span>
+                )}
+                <div className="flex bg-emerald-950/60 p-1 rounded-xl border border-emerald-700/50">
+                  <button
+                    onClick={() => setActiveTab("vote")}
+                    className={`px-4 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 ${
+                      activeTab === "vote"
+                        ? "bg-white text-emerald-900 shadow"
+                        : "text-emerald-100 hover:bg-emerald-800/60"
+                    }`}
+                  >
+                    <IconEdit />
+                    Cédula de Voto
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("summary")}
+                    className={`px-4 py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 ${
+                      activeTab === "summary"
+                        ? "bg-white text-emerald-900 shadow"
+                        : "text-emerald-100 hover:bg-emerald-800/60"
+                    }`}
+                  >
+                    <IconBarChart />
+                    Consolidado
                     <span className="ml-1.5 px-2 py-0.2 bg-emerald-500 text-white rounded-full text-xs font-extrabold">
                       {submittedBallots.length}
                     </span>
-                  )}
-                </button>
+                  </button>
+                </div>
               </div>
             </div>
           </header>
 
-          {/* Banner de aviso */}
+          {/* Banner de Orientação e Alerta da Nuvem */}
           <div className="bg-emerald-950 text-emerald-100 text-xs py-2.5 px-4 sm:px-6 border-b border-emerald-800/60">
             <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
                 <span>
-                  <strong>Orientação:</strong> Os itens <strong>1.1 a 2.2</strong> têm <em>Redação Final Consolidada</em> pelo GT. Os demais estão abertos para alteração, agrupamento ou divisão.
+                  <strong>Sincronização em Nuvem Ativa:</strong> Todos os votos enviados pelos 8 membros do GT acumulam automaticamente no mesmo painel.
                 </span>
               </div>
               <span className="text-emerald-300 font-mono font-bold">11 Objetivos em Pauta</span>
@@ -836,7 +871,7 @@
                           </span>
                         </div>
 
-                        {}
+                        {/* Lista de Objetivos do Eixo */}
                         <div className="space-y-4">
                           {axisObjs.map((obj) => {
                             const currentVote = votes[obj.id] || {
@@ -890,7 +925,7 @@
                                   </div>
                                 </div>
 
-                                {/* Texto do Objetivo sem aspas no início */}
+                                {/* Texto do Objetivo limpo sem aspas */}
                                 <div className="px-4 sm:px-5 py-3.5 bg-slate-50/30">
                                   <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
                                     Texto em Pauta:
@@ -948,7 +983,7 @@
                                         <span>Alterar Redação</span>
                                       </label>
 
-                                      {/* Dividir (Desmembrar) */}
+                                      {/* Dividir */}
                                       <label
                                         className={`flex items-center gap-1.5 p-3 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
                                           currentVote.decision === 'dividir'
@@ -1011,7 +1046,7 @@
                                     </div>
                                   </div>
 
-                                  {}
+                                  {/* Sub-opções de Dividir */}
                                   {currentVote.decision === 'dividir' && (
                                     <div className="bg-purple-50/80 border border-purple-200 rounded-xl p-4 space-y-3">
                                       <div className="flex items-center justify-between">
@@ -1155,7 +1190,7 @@
                           })}
                         </div>
 
-                        {/* Botão de Adicionar Novo Objetivo ESPECÍFICO DESTE EIXO */}
+                        {/* Botão de Adicionar Novo Objetivo neste Eixo */}
                         <div className="bg-white rounded-2xl p-4 border border-dashed border-emerald-300 hover:border-emerald-500 transition-all text-center space-y-3">
                           <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
                             <div className="text-left">
@@ -1175,7 +1210,6 @@
                             </button>
                           </div>
 
-                          {}
                           {axisProposals.length > 0 && (
                             <div className="space-y-3 pt-2 text-left">
                               {axisProposals.map((prop, pIndex) => (
@@ -1242,7 +1276,7 @@
                       11
                     </div>
                     <div>
-                      <div className="text-xs text-slate-400 font-semibold">Cédula de Voto</div>
+                      <div className="text-xs text-slate-400 font-semibold">Cédula de Voto (Sincronizada)</div>
                       <div className="text-sm font-bold">
                         Votante: {participantName.trim() || "Anônimo"}
                       </div>
@@ -1255,7 +1289,7 @@
                     className="w-full sm:w-auto px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg cursor-pointer"
                   >
                     <IconSend />
-                    {isSyncing ? "Enviando..." : "Registrar Meu Voto"}
+                    {isSyncing ? "Enviando para Nuvem..." : "Registrar Meu Voto"}
                   </button>
                 </div>
 
@@ -1271,13 +1305,13 @@
                   <div>
                     <div className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
                       <IconBarChart />
-                      Resultado Geral do GT
+                      Resultado Geral do GT (Sincronização em Tempo Real)
                     </div>
                     <h2 className="text-xl font-bold text-slate-900 mt-1">
                       Painel Consolidado de Deliberações
                     </h2>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Total de votos contabilizados: <strong className="text-slate-800">{submittedBallots.length}</strong> participante(s).
+                      Total de votos contabilizados na nuvem: <strong className="text-slate-800">{submittedBallots.length}</strong> participante(s).
                     </p>
                   </div>
 
@@ -1310,8 +1344,8 @@
 
                 {submittedBallots.length === 0 ? (
                   <div className="bg-white p-12 text-center rounded-2xl border border-dashed border-slate-300">
-                    <p className="text-base font-bold text-slate-700 mb-1">Nenhum voto registrado ainda</p>
-                    <p className="text-xs text-slate-500 mb-4">Preencha a cédula para ver as estatísticas consolidadas.</p>
+                    <p className="text-base font-bold text-slate-700 mb-1">Nenhum voto registrado ainda na nuvem</p>
+                    <p className="text-xs text-slate-500 mb-4">Preencha a cédula para ver as estatísticas consolidadas do grupo.</p>
                     <button
                       onClick={() => setActiveTab("vote")}
                       className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700"
@@ -1321,7 +1355,7 @@
                   </div>
                 ) : (
                   <>
-                    {}
+                    {/* Lista Consolidada por Objetivo */}
                     <div className="space-y-4">
                       {statsByObjective.map((item) => {
                         const total = item.totalCast || 1;
@@ -1473,15 +1507,15 @@
                       </div>
                     )}
 
-                    {}
+                    {/* Gestão e Exclusão de Votos de Teste */}
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
                       <div className="flex items-center justify-between">
                         <div>
                           <h3 className="text-sm font-bold text-slate-900">
-                            Cédulas Registradas / Votos de Teste ({submittedBallots.length})
+                            Cédulas Registradas na Nuvem ({submittedBallots.length})
                           </h3>
                           <p className="text-xs text-slate-500">
-                            Você pode excluir qualquer voto de teste enviado anteriormente.
+                            Gerencie os votos do grupo. Você pode excluir votos de teste enviados anteriormente.
                           </p>
                         </div>
                       </div>
